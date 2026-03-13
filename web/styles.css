@@ -45,8 +45,8 @@ body {
 }
 
 .app-window {
-  width: min(1360px, calc(100vw - 36px));
-  height: min(840px, calc(100vh - 36px));
+  width: min(1500px, calc(100vw - 24px));
+  height: min(860px, calc(100vh - 24px));
   border-radius: 22px;
   padding: 12px;
   background:
@@ -58,15 +58,16 @@ body {
 .workspace {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 320px;
   height: 100%;
-  gap: 12px;
+  gap: 10px;
 }
 
 .board-panel {
   border-radius: 18px;
   padding: 14px;
   min-width: 0;
+  overflow: hidden;
   background:
     radial-gradient(circle at top, rgba(134, 169, 159, 0.04), transparent 24%),
     linear-gradient(180deg, rgba(160, 138, 94, 0.05), rgba(0, 0, 0, 0)),
@@ -84,11 +85,9 @@ body {
 .hud-panel {
   border: 0;
   border-radius: 0;
-  padding: 66px 52px 42px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: center;
+  width: 320px;
+  max-width: 100%;
+  padding: 18px 12px 18px;
   min-height: 0;
   background:
     url("./assets/hud-moria-panel.png") center / 100% 100% no-repeat;
@@ -97,9 +96,15 @@ body {
   box-shadow: none;
 }
 
-.hud-panel > * {
+.hud-content {
   width: 100%;
-  max-width: 196px;
+  max-width: 252px;
+  height: 100%;
+  margin: 0 auto;
+  display: grid;
+  grid-template-rows: 70px 92px 88px 92px 132px 60px;
+  gap: 10px;
+  padding-top: 90px;
 }
 
 .hud-panel::before,
@@ -113,11 +118,9 @@ body {
   gap: 3px;
   align-items: center;
   justify-content: center;
-  min-height: 134px;
-  padding: 8px 8px 0;
-  margin-bottom: 2px;
+  min-height: 0;
+  padding: 10px 14px 8px;
   text-align: center;
-  background: transparent;
 }
 
 .hud-header::before {
@@ -133,7 +136,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.16em;
   color: var(--moria-gold);
-  font-size: 0.62rem;
+  font-size: 0.54rem;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
 }
 
@@ -145,7 +148,7 @@ h2,
 }
 
 h1 {
-  font-size: 0.9rem;
+  font-size: 0.98rem;
   line-height: 1.05;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -156,30 +159,35 @@ h1 {
 .lede {
   color: #aaa08d;
   line-height: 1.2;
-  font-size: 0.58rem;
-  max-width: 132px;
+  font-size: 0.56rem;
+  max-width: 176px;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 4px;
-  margin-bottom: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  align-items: stretch;
+  padding: 10px 8px;
 }
 
 .stat-card,
 .panel-section {
-  border: 1px solid rgba(147, 125, 83, 0.18);
-  border-radius: 10px;
-  padding: 9px 10px;
-  background: linear-gradient(180deg, rgba(12, 13, 14, 0.74), rgba(31, 28, 24, 0.66));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 250, 234, 0.03),
-    0 8px 20px rgba(0, 0, 0, 0.16);
+  border: 0;
+  border-radius: 14px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
   position: relative;
   overflow: hidden;
+}
+
+.stat-card {
+  min-height: 64px;
+  padding: 18px 4px 6px;
+  text-align: center;
 }
 
 .stat-card::before,
@@ -189,54 +197,104 @@ h1 {
 
 .stat-card::after,
 .panel-section::after {
-  content: "";
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  top: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(198, 162, 90, 0.32), transparent);
-  pointer-events: none;
+  content: none;
 }
 
 .stat-label {
   display: block;
-  color: #a69068;
-  font-size: 0.55rem;
+  color: #d0b076;
+  font-size: 0.46rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  margin-bottom: 3px;
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
 .stat-card strong {
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   font-weight: 700;
-  color: #ebe1ca;
+  color: #f1e8d2;
+  display: block;
+  line-height: 1.05;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95);
+}
+
+.stat-icon {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  display: block;
+  transform: translateX(-50%);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  opacity: 0.96;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+}
+
+.stat-icon-floor {
+  width: 14px;
+  height: 14px;
+}
+
+.stat-icon-floor::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(198, 162, 90, 0.45);
+  border-radius: 4px;
+  background:
+    linear-gradient(90deg, transparent 46%, rgba(198, 162, 90, 0.32) 46% 54%, transparent 54%),
+    linear-gradient(transparent 46%, rgba(198, 162, 90, 0.32) 46% 54%, transparent 54%);
+}
+
+.stat-icon-gold {
+  background-image: url("./assets/gold.png");
+}
+
+.stat-icon-potion {
+  background-image: url("./assets/potion.png");
+}
+
+.stat-icon-dash::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 3px;
+  width: 12px;
+  height: 12px;
+  border-top: 2px solid rgba(198, 162, 90, 0.88);
+  border-right: 2px solid rgba(198, 162, 90, 0.88);
+  transform: skew(-18deg) rotate(45deg);
 }
 
 .panel-section {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 12px 14px 10px;
 }
 
 .panel-section h2 {
-  font-size: 0.68rem;
+  font-size: 0.84rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   color: var(--moria-gold);
 }
 
 .panel-section p {
   color: #c1b5a0;
-  line-height: 1.28;
-  font-size: 0.65rem;
+  line-height: 1.24;
+  font-size: 0.8rem;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95);
 }
 
 .control-list {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 
 .control-item {
@@ -245,14 +303,14 @@ h1 {
   justify-content: space-between;
   gap: 8px;
   color: #d0c2a7;
-  font-size: 0.65rem;
+  font-size: 0.78rem;
 }
 
 .control-label {
   color: #a98f63;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  font-size: 0.5rem;
+  font-size: 0.58rem;
 }
 
 button {
@@ -267,13 +325,13 @@ button {
     inset 0 1px 0 rgba(255, 244, 214, 0.2),
     0 10px 24px rgba(0, 0, 0, 0.24);
   cursor: pointer;
-  margin-top: auto;
   position: relative;
   overflow: hidden;
   width: 100%;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 0.72rem;
+  font-size: 0.86rem;
+  align-self: stretch;
 }
 
 button::after {
@@ -292,13 +350,26 @@ button:hover {
 kbd {
   display: inline-block;
   min-width: 1.45em;
-  padding: 0.08em 0.32em;
-  border-radius: 3px;
-  border: 1px solid rgba(173, 151, 110, 0.18);
+  padding: 0.12em 0.4em;
+  border-radius: 6px;
+  border: 1px solid rgba(173, 151, 110, 0.24);
   background: rgba(35, 31, 26, 0.78);
   color: var(--moria-stone);
   font: inherit;
   text-align: center;
+}
+
+.hud-plate {
+  background: linear-gradient(180deg, rgba(9, 10, 12, 0.88), rgba(26, 22, 18, 0.82));
+  border: 1px solid rgba(166, 138, 84, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 228, 0.05),
+    0 12px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(2px);
+}
+
+.compact-panel {
+  padding-bottom: 8px;
 }
 
 @media (max-width: 1180px) {

@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { DungeonGame } from "../web/src/game-logic.js";
+import { minimumAppWindowWidth, HUD_COLUMN_WIDTH } from "../web/src/layout-metrics.js";
+import { updateEnemyFacingState } from "../web/src/render-facing.js";
 
 test("collecting relic unlocks exit", () => {
   const game = new DungeonGame({ width: 12, height: 10, seed: 1 });
@@ -257,4 +259,38 @@ test("dash moves up to two cells and collects loot", () => {
   assert.deepEqual(game.player, { x: 4, y: 2 });
   assert.equal(game.score, 5);
   assert.equal(game.dashCooldown, 3);
+});
+
+test("wisp facing remains stable under tiny alternating movement jitter", () => {
+  let state = {
+    kind: "wisp",
+    previousFacing: "north-east",
+    previousSmoothedDx: 0.12,
+    previousSmoothedDy: -0.12,
+  };
+
+  const jitterSamples = [
+    { movementDx: 0.01, movementDy: -0.01 },
+    { movementDx: -0.01, movementDy: 0.01 },
+    { movementDx: 0.012, movementDy: -0.009 },
+    { movementDx: -0.009, movementDy: 0.011 },
+  ];
+
+  for (const sample of jitterSamples) {
+    const next = updateEnemyFacingState({ ...state, ...sample });
+    state = {
+      kind: "wisp",
+      facing: next.facing,
+      previousFacing: next.facing,
+      previousSmoothedDx: next.smoothedDx,
+      previousSmoothedDy: next.smoothedDy,
+    };
+    assert.equal(state.facing, "north-east");
+  }
+});
+
+test("layout budget keeps the hud column from stealing the board width", () => {
+  assert.equal(HUD_COLUMN_WIDTH <= 320, true);
+  assert.equal(minimumAppWindowWidth() <= 1500, true);
+  assert.equal(minimumAppWindowWidth() >= 1400, true);
 });

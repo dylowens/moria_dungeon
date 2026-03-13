@@ -114,6 +114,25 @@ const enemyArt = {
   },
 };
 
+const itemArt = {
+  gold: {
+    url: "./assets/gold.png",
+    image: null,
+    ready: false,
+    drawWidth: 28,
+    drawHeight: 28,
+    yOffset: 1,
+  },
+  potion: {
+    url: "./assets/potion.png",
+    image: null,
+    ready: false,
+    drawWidth: 24,
+    drawHeight: 30,
+    yOffset: -2,
+  },
+};
+
 const state = {
   game: new DungeonGame(),
   heldDirections: new Map(),
@@ -130,6 +149,7 @@ state.playerRender = { current: { ...state.game.snapshot().player }, tween: null
 syncEnemyRenders(state.game.snapshot().enemies);
 syncHud();
 loadEnemyArt();
+loadItemArt();
 requestAnimationFrame(frame);
 
 restartButton.addEventListener("click", () => resetGame());
@@ -311,6 +331,21 @@ async function loadEnemyArt() {
       }));
       asset.ready = asset.frames.size > 0;
     } catch {
+      asset.ready = false;
+    }
+  }
+}
+
+async function loadItemArt() {
+  for (const asset of Object.values(itemArt)) {
+    try {
+      const image = new Image();
+      image.src = asset.url;
+      await decodeImage(image);
+      asset.image = image;
+      asset.ready = true;
+    } catch {
+      asset.image = null;
       asset.ready = false;
     }
   }
@@ -633,17 +668,28 @@ function drawExit(position, unlocked, offsetX, offsetY, now) {
 function drawItem(item, offsetX, offsetY, now) {
   const { x, y } = worldToScreen(item.position, offsetX, offsetY);
   const bob = Math.sin(now / 150 + item.position.x * 0.4) * 2;
+  const art = itemArt[item.kind];
+  if (art?.ready && art.image) {
+    const drawX = x + (CELL_SIZE - art.drawWidth) / 2;
+    const drawY = y + (CELL_SIZE - art.drawHeight) / 2 + bob + art.yOffset;
+    context.save();
+    context.shadowColor = item.kind === "gold" ? "rgba(245, 215, 109, 0.32)" : "rgba(141, 118, 255, 0.28)";
+    context.shadowBlur = 14;
+    context.drawImage(art.image, drawX, drawY, art.drawWidth, art.drawHeight);
+    context.restore();
+    return;
+  }
   if (item.kind === "gold") {
     context.fillStyle = "#f5d76d";
     context.beginPath();
-    context.arc(x + CELL_SIZE / 2, y + CELL_SIZE / 2 + bob, 10, 0, Math.PI * 2);
+    context.arc(x + CELL_SIZE / 2, y + CELL_SIZE / 2 + bob, 12, 0, Math.PI * 2);
     context.fill();
   } else {
     context.fillStyle = "#8d76ff";
-    roundRect(context, x + 15, y + 11 + bob, CELL_SIZE - 30, CELL_SIZE - 22, 8);
+    roundRect(context, x + 12, y + 9 + bob, CELL_SIZE - 24, CELL_SIZE - 18, 9);
     context.fill();
     context.fillStyle = "#e8e0ff";
-    roundRect(context, x + 18, y + 8 + bob, CELL_SIZE - 36, 5, 2);
+    roundRect(context, x + 16, y + 6 + bob, CELL_SIZE - 32, 6, 3);
     context.fill();
   }
 }
@@ -756,7 +802,7 @@ function drawFloorFade(floor, now) {
 function syncHud() {
   const snapshot = state.game.snapshot();
   ui.floor.textContent = String(snapshot.floor);
-  ui.score.textContent = `${snapshot.score} / ${snapshot.kills}K`;
+  ui.score.textContent = String(snapshot.score);
   ui.health.textContent = `${snapshot.hp}/${snapshot.maxHp}`;
   ui.dash.textContent = snapshot.dashCooldown <= 0.05 ? "Ready" : `${snapshot.dashCooldown.toFixed(1)}s`;
   ui.objective.textContent = snapshot.gameOver
