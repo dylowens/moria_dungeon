@@ -2,6 +2,8 @@
 
 This is a desktop-ready rebuild of the dungeon crawler using plain HTML5 Canvas and JavaScript.
 
+![Vault Delver gameplay](./gameplay.png)
+
 ## Why this layout
 
 - Local testing on macOS is immediate with a browser and a tiny built-in Node server.
