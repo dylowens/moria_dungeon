@@ -148,6 +148,34 @@ test("wisp personality can ignore the player and roam randomly", () => {
   assert.equal(afterDistance >= beforeDistance - 0.01, true);
 });
 
+test("wisp personality keeps a stable movement mode during a short alert window", () => {
+  const game = new DungeonGame({ width: 12, height: 10, seed: 177 });
+  game.walls = new Set();
+  game.playerWorld = { x: 2, y: 2 };
+  game.enemies = [{
+    id: 1,
+    kind: "wisp",
+    personality: "random",
+    position: { x: 6, y: 6 },
+    worldPosition: { x: 6, y: 6 },
+    hp: 2,
+    maxHp: 2,
+    damage: 1,
+    reward: 12,
+    wanderDirection: { x: 0, y: -1 },
+    wanderTimer: 0.8,
+    randomMode: "roam",
+    randomModeTimer: 0.4,
+    attackCooldown: 0,
+  }];
+
+  const first = game.enemyDesiredDirection(game.enemies[0], game.enemies[0].worldPosition, true, 0.1);
+  const second = game.enemyDesiredDirection(game.enemies[0], game.enemies[0].worldPosition, true, 0.1);
+
+  assert.deepEqual(first, second);
+  assert.equal(game.enemies[0].randomMode, "roam");
+});
+
 test("shade personality can flee while alerted", () => {
   const game = new DungeonGame({ width: 12, height: 10, seed: 88 });
   game.walls = new Set();
@@ -176,6 +204,25 @@ test("shade personality can flee while alerted", () => {
 
   const afterDistance = Math.hypot(game.enemies[0].worldPosition.x - game.playerWorld.x, game.enemies[0].worldPosition.y - game.playerWorld.y);
   assert.equal(afterDistance > beforeDistance, true);
+});
+
+test("every floor can include each enemy type", () => {
+  const game = new DungeonGame({ width: 12, height: 10, seed: 99 });
+  const distances = new Map();
+  for (let y = 1; y < 9; y += 1) {
+    for (let x = 1; x < 11; x += 1) {
+      distances.set(`${x},${y}`, 6);
+    }
+  }
+
+  game.floor = 1;
+  const enemies = game.placeEnemies(distances, new Set());
+  const kinds = new Set(enemies.map((enemy) => enemy.kind));
+
+  assert.equal(kinds.has("stalker"), true);
+  assert.equal(kinds.has("wisp"), true);
+  assert.equal(kinds.has("brute"), true);
+  assert.equal(kinds.has("shade"), true);
 });
 
 test("realtime exit collision advances to the next floor", () => {

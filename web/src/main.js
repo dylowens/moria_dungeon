@@ -1,4 +1,5 @@
 import { DungeonGame } from "./game-logic.js";
+import { updateEnemyFacingState } from "./render-facing.js";
 
 const CELL_SIZE = 46;
 const BOARD_PADDING = 22;
@@ -62,6 +63,57 @@ const enemyPalette = {
   },
 };
 
+const enemyArt = {
+  stalker: {
+    metadataUrl: "./assets/stalker-sheet/metadata.json",
+    frames: new Map(),
+    ready: false,
+    drawScale: 0.62,
+    yOffset: 11,
+    shadowColor: "rgba(255, 96, 34, 0.32)",
+    shadowBlur: 24,
+    auraColor: "rgba(255, 92, 28, 0.18)",
+    shadowRadiusX: 25,
+    shadowRadiusY: 9,
+  },
+  brute: {
+    metadataUrl: "./assets/brute-sheet/metadata.json",
+    frames: new Map(),
+    ready: false,
+    drawScale: 0.64,
+    yOffset: 13,
+    shadowColor: "rgba(255, 108, 46, 0.34)",
+    shadowBlur: 26,
+    auraColor: "rgba(255, 110, 52, 0.16)",
+    shadowRadiusX: 28,
+    shadowRadiusY: 10,
+  },
+  wisp: {
+    metadataUrl: "./assets/wisp-sheet/metadata.json",
+    frames: new Map(),
+    ready: false,
+    drawScale: 0.58,
+    yOffset: 9,
+    shadowColor: "rgba(118, 179, 255, 0.26)",
+    shadowBlur: 22,
+    auraColor: "rgba(108, 176, 255, 0.2)",
+    shadowRadiusX: 22,
+    shadowRadiusY: 8,
+  },
+  shade: {
+    metadataUrl: "./assets/shade-sheet/metadata.json",
+    frames: new Map(),
+    ready: false,
+    drawScale: 0.6,
+    yOffset: 10,
+    shadowColor: "rgba(174, 132, 255, 0.24)",
+    shadowBlur: 24,
+    auraColor: "rgba(145, 109, 221, 0.18)",
+    shadowRadiusX: 24,
+    shadowRadiusY: 8,
+  },
+};
+
 const state = {
   game: new DungeonGame(),
   heldDirections: new Map(),
@@ -77,6 +129,7 @@ const state = {
 state.playerRender = { current: { ...state.game.snapshot().player }, tween: null };
 syncEnemyRenders(state.game.snapshot().enemies);
 syncHud();
+loadEnemyArt();
 requestAnimationFrame(frame);
 
 restartButton.addEventListener("click", () => resetGame());
@@ -169,7 +222,7 @@ function performDash(now) {
 
 function applySnapshotTransition(before, after, result, startedAt) {
   state.playerRender.current = { ...after.player };
-  syncEnemyRenders(after.enemies);
+  syncEnemyRenders(after.enemies, state.enemyRenders);
   spawnEffects(before, after, result, startedAt);
   if (before.floor !== after.floor) {
     state.floorFadeStartedAt = startedAt;
@@ -216,16 +269,61 @@ function spawnEffects(before, after, result, startedAt) {
   }
 }
 
-function syncEnemyRenders(enemies) {
+function syncEnemyRenders(enemies, previousRenders = new Map()) {
   const next = new Map();
   for (const enemy of enemies) {
+    const previous = previousRenders.get(enemyId(enemy));
+    const facingState = updateEnemyFacingState({
+      kind: enemy.kind,
+      previousFacing: previous?.facing ?? "south",
+      previousSmoothedDx: previous?.smoothedDx ?? 0,
+      previousSmoothedDy: previous?.smoothedDy ?? 0,
+      movementDx: previous ? enemy.position.x - previous.current.x : 0,
+      movementDy: previous ? enemy.position.y - previous.current.y : 0,
+    });
     next.set(enemyId(enemy), {
       current: { ...enemy.position },
       tween: null,
       enemy,
+      facing: facingState.facing,
+      smoothedDx: facingState.smoothedDx,
+      smoothedDy: facingState.smoothedDy,
     });
   }
   state.enemyRenders = next;
+}
+
+async function loadEnemyArt() {
+  for (const [kind, asset] of Object.entries(enemyArt)) {
+    try {
+      const response = await fetch(asset.metadataUrl);
+      if (!response.ok) {
+        continue;
+      }
+      const metadata = await response.json();
+      const metadataBase = new URL(asset.metadataUrl, window.location.href);
+      const entries = Object.entries(metadata.frames?.rotations ?? {});
+      await Promise.all(entries.map(async ([direction, relativePath]) => {
+        const image = new Image();
+        image.src = new URL(relativePath, metadataBase).toString();
+        await decodeImage(image);
+        asset.frames.set(direction, image);
+      }));
+      asset.ready = asset.frames.size > 0;
+    } catch {
+      asset.ready = false;
+    }
+  }
+}
+
+function decodeImage(image) {
+  if (typeof image.decode === "function") {
+    return image.decode();
+  }
+  return new Promise((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = reject;
+  });
 }
 
 function resizeCanvasForDisplay() {
@@ -399,6 +497,14 @@ function drawPlayerHealthBar(snapshot, x, y) {
 function drawEnemy(enemy, position, offsetX, offsetY, now) {
   const { x, y } = worldToScreen(position, offsetX, offsetY);
   const bob = Math.sin(now / 140 + enemy.position.x * 0.6 + enemy.position.y * 0.3) * 1.8;
+  const render = state.enemyRenders.get(enemyId(enemy));
+  const art = enemyArt[enemy.kind];
+  const frame = art?.ready ? art.frames.get(render?.facing ?? "south") ?? art.frames.get("south") : null;
+
+  if (frame) {
+    drawEnemySprite(enemy, frame, x, y, bob, art);
+    return;
+  }
   const palette = enemyPalette[enemy.kind] ?? enemyPalette.stalker;
 
   context.fillStyle = palette.aura;
@@ -425,6 +531,43 @@ function drawEnemy(enemy, position, offsetX, offsetY, now) {
   roundRect(context, x + 6, y + CELL_SIZE - 9, CELL_SIZE - 12, 5, 3);
   context.fill();
   context.fillStyle = palette.health;
+  roundRect(context, x + 7, y + CELL_SIZE - 8, (CELL_SIZE - 14) * (enemy.hp / enemy.maxHp), 3, 2);
+  context.fill();
+}
+
+function drawEnemySprite(enemy, frame, x, y, bob, art) {
+  const scale = art?.drawScale ?? 1.5;
+  const drawWidth = frame.width * scale;
+  const drawHeight = frame.height * scale;
+  const drawX = x + (CELL_SIZE - drawWidth) / 2;
+  const drawY = y + CELL_SIZE - drawHeight + (art?.yOffset ?? 0) + bob;
+  if (art?.auraColor) {
+    context.fillStyle = art.auraColor;
+    context.beginPath();
+    context.arc(x + CELL_SIZE / 2, y + CELL_SIZE / 2 - 1, 18 + Math.sin(performance.now() / 180) * 1.5, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.fillStyle = "rgba(9, 5, 7, 0.9)";
+  context.beginPath();
+  context.ellipse(
+    x + CELL_SIZE / 2,
+    y + CELL_SIZE - 2,
+    art?.shadowRadiusX ?? 25,
+    art?.shadowRadiusY ?? 9,
+    0,
+    0,
+    Math.PI * 2
+  );
+  context.fill();
+  context.save();
+  context.shadowColor = art?.shadowColor ?? "rgba(255, 96, 34, 0.32)";
+  context.shadowBlur = art?.shadowBlur ?? 24;
+  context.drawImage(frame, drawX, drawY, drawWidth, drawHeight);
+  context.restore();
+  context.fillStyle = "#23171a";
+  roundRect(context, x + 6, y + CELL_SIZE - 9, CELL_SIZE - 12, 5, 3);
+  context.fill();
+  context.fillStyle = "#f0b97d";
   roundRect(context, x + 7, y + CELL_SIZE - 8, (CELL_SIZE - 14) * (enemy.hp / enemy.maxHp), 3, 2);
   context.fill();
 }

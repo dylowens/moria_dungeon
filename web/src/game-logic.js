@@ -287,6 +287,7 @@ export class DungeonGame {
       const enemyPosition = enemy.worldPosition ?? enemy.position;
       const enemyDistance = distance(enemyPosition, this.playerWorld);
       if (enemyDistance <= this.enemyAttackRange) {
+        enemy.facing = this.directionTowardPlayer(enemyPosition);
         if (enemy.attackCooldown <= 0) {
           this.hp -= enemy.damage;
           damageTaken += enemy.damage;
@@ -296,6 +297,7 @@ export class DungeonGame {
       }
 
       const desiredDirection = this.enemyDesiredDirection(enemy, enemyPosition, trackingPlayer, clampedDelta);
+      enemy.facing = desiredDirection;
       this.moveWorldEntity(
         enemyPosition,
         desiredDirection,
@@ -343,10 +345,14 @@ export class DungeonGame {
     }
 
     if (personality === "random") {
-      if (this.rng.next() < 0.72) {
-        return this.directionForRoaming(enemy, deltaSeconds);
+      enemy.randomModeTimer = (enemy.randomModeTimer ?? 0) - deltaSeconds;
+      if (enemy.randomModeTimer <= 0 || !enemy.randomMode) {
+        enemy.randomMode = this.rng.next() < 0.58 ? "roam" : "track";
+        enemy.randomModeTimer = this.rng.next() * 0.55 + 0.3;
       }
-      return this.directionTowardPlayer(enemyPosition);
+      return enemy.randomMode === "roam"
+        ? this.directionForRoaming(enemy, deltaSeconds)
+        : this.directionTowardPlayer(enemyPosition);
     }
 
     if (personality === "confused") {
@@ -729,6 +735,8 @@ export class DungeonGame {
       enemy.attackCooldown = 0;
       enemy.personality = enemy.personality ?? this.enemyProfile(enemy.kind).personality;
       enemy.confusedTimer = this.rng.next() * 0.7 + 0.2;
+      enemy.randomMode = "roam";
+      enemy.randomModeTimer = this.rng.next() * 0.45 + 0.25;
     }
   }
 
@@ -827,15 +835,18 @@ export class DungeonGame {
       .filter((position) => !reserved.has(keyOf(position)));
     this.rng.shuffle(candidates);
     const enemies = [];
-    const enemyCount = Math.min(7, 2 + this.floor * 2);
-    const kinds = this.floor >= 4
-      ? ["stalker", "wisp", "shade", "brute"]
-      : this.floor >= 2
-        ? ["stalker", "wisp", "brute"]
-        : ["stalker", "wisp"];
+    const enemyCount = Math.min(7, Math.max(2 + this.floor * 2, 4));
+    const kinds = ["stalker", "wisp", "shade", "brute"];
 
-    for (let index = 0; index < enemyCount && candidates.length > 0; index += 1) {
-      const kind = kinds[index % kinds.length];
+    for (const kind of kinds) {
+      if (candidates.length === 0) {
+        break;
+      }
+      enemies.push(this.createEnemy(kind, candidates.pop()));
+    }
+
+    while (enemies.length < enemyCount && candidates.length > 0) {
+      const kind = kinds[enemies.length % kinds.length];
       enemies.push(this.createEnemy(kind, candidates.pop()));
     }
     return enemies;

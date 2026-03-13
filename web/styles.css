@@ -8,6 +8,8 @@
   --text-muted: #9caab3;
   --accent: #f3c868;
   --danger: #ff7a63;
+  --moria-gold: #c6a25a;
+  --moria-stone: #c9c2b2;
 }
 
 * {
@@ -56,7 +58,7 @@ body {
 .workspace {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 292px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   height: 100%;
   gap: 12px;
 }
@@ -80,89 +82,59 @@ body {
 }
 
 .hud-panel {
-  border-radius: 24px;
-  padding: 16px;
+  border: 0;
+  border-radius: 0;
+  padding: 66px 52px 42px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  align-items: center;
   min-height: 0;
   background:
-    radial-gradient(circle at top, rgba(127, 174, 163, 0.09), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(145, 115, 64, 0.08), transparent 36%),
-    linear-gradient(180deg, rgba(82, 63, 36, 0.2), rgba(0, 0, 0, 0)),
-    linear-gradient(180deg, rgba(255, 250, 235, 0.04), rgba(255, 255, 255, 0)),
-    rgba(24, 20, 13, 0.98);
+    url("./assets/hud-moria-panel.png") center / 100% 100% no-repeat;
   position: relative;
   overflow: hidden;
+  box-shadow: none;
+}
+
+.hud-panel > * {
+  width: 100%;
+  max-width: 196px;
 }
 
 .hud-panel::before,
 .hud-panel::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-}
-
-.hud-panel::before {
-  inset: 10px;
-  border: 1px solid rgba(166, 145, 102, 0.18);
-  border-radius: 18px;
-  box-shadow: inset 0 0 0 1px rgba(58, 49, 30, 0.45);
-}
-
-.hud-panel::after {
-  inset: 18px;
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 0 0, transparent 0 26px, rgba(188, 170, 128, 0.18) 26px 27px, transparent 27px) top left / 76px 76px no-repeat,
-    radial-gradient(circle at 100% 0, transparent 0 26px, rgba(188, 170, 128, 0.18) 26px 27px, transparent 27px) top right / 76px 76px no-repeat,
-    radial-gradient(circle at 0 100%, transparent 0 26px, rgba(188, 170, 128, 0.18) 26px 27px, transparent 27px) bottom left / 76px 76px no-repeat,
-    radial-gradient(circle at 100% 100%, transparent 0 26px, rgba(188, 170, 128, 0.18) 26px 27px, transparent 27px) bottom right / 76px 76px no-repeat,
-    linear-gradient(90deg, transparent 0 14%, rgba(186, 167, 126, 0.18) 28%, rgba(186, 167, 126, 0.18) 72%, transparent 86%) top center / 64% 1px no-repeat,
-    linear-gradient(90deg, transparent 0 14%, rgba(186, 167, 126, 0.18) 28%, rgba(186, 167, 126, 0.18) 72%, transparent 86%) bottom center / 64% 1px no-repeat;
-  pointer-events: none;
+  content: none;
 }
 
 .hud-header {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 12px 14px 14px;
-  border: 1px solid rgba(143, 118, 74, 0.2);
-  border-radius: 18px 18px 12px 12px;
-  background:
-    radial-gradient(circle at top, rgba(124, 161, 152, 0.08), transparent 34%),
-    linear-gradient(180deg, rgba(137, 111, 66, 0.08), rgba(0, 0, 0, 0)),
-    rgba(23, 18, 12, 0.72);
-  position: relative;
-  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  min-height: 134px;
+  padding: 8px 8px 0;
+  margin-bottom: 2px;
+  text-align: center;
+  background: transparent;
 }
 
 .hud-header::before {
-  content: "❦";
-  position: absolute;
-  right: 16px;
-  top: 10px;
-  color: rgba(201, 187, 156, 0.28);
-  font-size: 1rem;
+  content: none;
 }
 
 .hud-header::after {
-  content: "";
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 8px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(192, 162, 108, 0.6), transparent);
+  content: none;
 }
 
 .eyebrow {
   margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: var(--accent);
-  font-size: 0.68rem;
+  color: var(--moria-gold);
+  font-size: 0.62rem;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
 }
 
 h1,
@@ -173,74 +145,73 @@ h2,
 }
 
 h1 {
-  font-size: 1.42rem;
-  line-height: 1;
-  letter-spacing: 0.03em;
+  font-size: 0.9rem;
+  line-height: 1.05;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: #e7dec7;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
 }
 
 .lede {
-  color: #bca988;
+  color: #aaa08d;
   line-height: 1.2;
-  font-size: 0.82rem;
+  font-size: 0.58rem;
+  max-width: 132px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
 
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
+  margin-top: 4px;
+  margin-bottom: 6px;
 }
 
 .stat-card,
 .panel-section {
-  border: 1px solid rgba(142, 127, 89, 0.25);
-  border-radius: 16px;
-  padding: 10px 12px;
-  background:
-    radial-gradient(circle at top, rgba(118, 153, 144, 0.05), transparent 32%),
-    linear-gradient(180deg, rgba(115, 93, 56, 0.08), rgba(0, 0, 0, 0)),
-    rgba(21, 18, 14, 0.82);
+  border: 1px solid rgba(147, 125, 83, 0.18);
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: linear-gradient(180deg, rgba(12, 13, 14, 0.74), rgba(31, 28, 24, 0.66));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.02),
-    inset 0 0 0 1px rgba(44, 34, 20, 0.45);
+    inset 0 1px 0 rgba(255, 250, 234, 0.03),
+    0 8px 20px rgba(0, 0, 0, 0.16);
   position: relative;
   overflow: hidden;
 }
 
 .stat-card::before,
 .panel-section::before {
-  content: "";
-  position: absolute;
-  inset: 6px;
-  border: 1px solid rgba(172, 149, 107, 0.12);
-  border-radius: 12px;
-  pointer-events: none;
+  content: none;
 }
 
 .stat-card::after,
 .panel-section::after {
-  content: "❧";
+  content: "";
   position: absolute;
-  right: 12px;
-  top: 9px;
-  color: rgba(194, 181, 147, 0.2);
-  font-size: 0.9rem;
+  left: 10px;
+  right: 10px;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(198, 162, 90, 0.32), transparent);
   pointer-events: none;
 }
 
 .stat-label {
   display: block;
-  color: #ab9771;
-  font-size: 0.66rem;
+  color: #a69068;
+  font-size: 0.55rem;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
-  margin-bottom: 4px;
+  letter-spacing: 0.12em;
+  margin-bottom: 3px;
 }
 
 .stat-card strong {
-  font-size: 1.08rem;
+  font-size: 0.88rem;
   font-weight: 700;
-  color: #f0e2c0;
+  color: #ebe1ca;
 }
 
 .panel-section {
@@ -250,61 +221,67 @@ h1 {
 }
 
 .panel-section h2 {
-  font-size: 0.88rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #d4b37a;
+  color: var(--moria-gold);
 }
 
 .panel-section p {
-  color: #b7ac97;
+  color: #c1b5a0;
   line-height: 1.28;
-  font-size: 0.87rem;
+  font-size: 0.65rem;
 }
 
 .control-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .control-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  color: #c9b797;
-  font-size: 0.84rem;
+  gap: 8px;
+  color: #d0c2a7;
+  font-size: 0.65rem;
 }
 
 .control-label {
   color: #a98f63;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  font-size: 0.5rem;
 }
 
 button {
-  border: 0;
-  border-radius: 999px;
+  border: 1px solid rgba(126, 96, 45, 0.55);
+  border-radius: 10px;
   padding: 11px 16px;
   font: inherit;
   font-weight: 700;
-  color: #161a1d;
-  background: linear-gradient(180deg, #d8bd81, #9d7b39);
-  box-shadow: inset 0 1px 0 rgba(255, 248, 229, 0.2);
+  color: #21180a;
+  background: linear-gradient(180deg, #d0b072, #8d6830);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 214, 0.2),
+    0 10px 24px rgba(0, 0, 0, 0.24);
   cursor: pointer;
   margin-top: auto;
   position: relative;
   overflow: hidden;
+  width: 100%;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
 }
 
 button::after {
   content: "";
   position: absolute;
   inset: 3px;
-  border: 1px solid rgba(255, 244, 214, 0.22);
-  border-radius: 999px;
+  border: 1px solid rgba(255, 244, 214, 0.18);
+  border-radius: 8px;
   pointer-events: none;
 }
 
@@ -314,12 +291,12 @@ button:hover {
 
 kbd {
   display: inline-block;
-  min-width: 1.55em;
-  padding: 0.1em 0.38em;
+  min-width: 1.45em;
+  padding: 0.08em 0.32em;
   border-radius: 3px;
-  border: 1px solid rgba(173, 151, 110, 0.24);
-  background: rgba(52, 43, 27, 0.75);
-  color: var(--text-main);
+  border: 1px solid rgba(173, 151, 110, 0.18);
+  background: rgba(35, 31, 26, 0.78);
+  color: var(--moria-stone);
   font: inherit;
   text-align: center;
 }
