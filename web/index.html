@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vault Delver</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="app-window">
+        <section class="workspace">
+          <section class="board-panel">
+            <canvas id="game-canvas" width="1040" height="760" aria-label="Vault Delver game board"></canvas>
+          </section>
+
+          <aside class="hud-panel">
+            <header class="hud-header">
+              <p class="eyebrow">Blackstone Vault</p>
+              <h1>Vault Ledger</h1>
+              <p class="lede">Find relic. Reach exit. Live.</p>
+            </header>
+
+            <div class="stat-grid">
+              <div class="stat-card">
+                <span class="stat-label">Floor</span>
+                <strong id="floor-value">1</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Score</span>
+                <strong id="score-value">0</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Health</span>
+                <strong id="health-value">8 / 8</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Dash</span>
+                <strong id="dash-value">Ready</strong>
+              </div>
+            </div>
+
+            <section class="panel-section">
+              <h2>Goal</h2>
+              <p id="objective-value">Find the relic before the dungeon closes in.</p>
+            </section>
+
+            <section class="panel-section">
+              <h2>Last</h2>
+              <p id="status-value">Explore the chamber.</p>
+            </section>
+
+            <section class="panel-section compact-panel">
+              <h2>Hands</h2>
+              <div class="control-list">
+                <div class="control-item"><span class="control-label">Move</span><span><kbd>Arrows</kbd> / <kbd>WASD</kbd></span></div>
+                <div class="control-item"><span class="control-label">Attack</span><span><kbd>Space</kbd></span></div>
+                <div class="control-item"><span class="control-label">Dash</span><span><kbd>Shift</kbd></span></div>
+                <div class="control-item"><span class="control-label">Reset</span><span><kbd>R</kbd></span></div>
+              </div>
+            </section>
+
+            <button id="restart-button" class="restart-button" type="button">Restart</button>
+          </aside>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+  </html>

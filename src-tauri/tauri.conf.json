@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Vault Delver",
+  "version": "0.1.0",
+  "identifier": "com.ecogames.vaultdelver",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://127.0.0.1:4173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Vault Delver",
+        "width": 1360,
+        "height": 820,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg", "nsis"],
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "dmg": {
+        "windowSize": {
+          "width": 820,
+          "height": 520
+        },
+        "appPosition": {
+          "x": 210,
+          "y": 250
+        },
+        "applicationFolderPosition": {
+          "x": 610,
+          "y": 250
+        }
+      }
+    }
+  }
+}
