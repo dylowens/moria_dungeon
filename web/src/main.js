@@ -293,16 +293,17 @@ function syncEnemyRenders(enemies, previousRenders = new Map()) {
   const next = new Map();
   for (const enemy of enemies) {
     const previous = previousRenders.get(enemyId(enemy));
+    const currentPosition = { ...enemy.position };
     const facingState = updateEnemyFacingState({
       kind: enemy.kind,
       previousFacing: previous?.facing ?? "south",
       previousSmoothedDx: previous?.smoothedDx ?? 0,
       previousSmoothedDy: previous?.smoothedDy ?? 0,
-      movementDx: previous ? enemy.position.x - previous.current.x : 0,
-      movementDy: previous ? enemy.position.y - previous.current.y : 0,
+      movementDx: previous ? currentPosition.x - previous.current.x : 0,
+      movementDy: previous ? currentPosition.y - previous.current.y : 0,
     });
     next.set(enemyId(enemy), {
-      current: { ...enemy.position },
+      current: currentPosition,
       tween: null,
       enemy,
       facing: facingState.facing,
