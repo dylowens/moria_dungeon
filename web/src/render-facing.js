@@ -36,9 +36,9 @@ export function updateEnemyFacingState({
   movementDy = 0,
 }) {
   if (kind === "wisp") {
-    const smoothedDx = previousSmoothedDx * 0.55 + movementDx * 0.45;
-    const smoothedDy = previousSmoothedDy * 0.55 + movementDy * 0.45;
-    const facing = Math.hypot(movementDx, movementDy) >= 0.05
+    const smoothedDx = previousSmoothedDx * 0.45 + movementDx * 0.55;
+    const smoothedDy = previousSmoothedDy * 0.45 + movementDy * 0.55;
+    const facing = Math.hypot(movementDx, movementDy) >= 0.015
       ? directionLabelFromVector(movementDx, movementDy, previousFacing)
       : previousFacing;
     return { facing, smoothedDx, smoothedDy };
