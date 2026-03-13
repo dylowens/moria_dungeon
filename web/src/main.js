@@ -2,15 +2,10 @@ import { DungeonGame } from "./game-logic.js";
 
 const CELL_SIZE = 46;
 const BOARD_PADDING = 22;
-const HOLD_INITIAL_DELAY = 128;
-const HOLD_REPEAT_DELAY = 108;
 const ATTACK_HOLD_INITIAL_DELAY = 140;
 const ATTACK_HOLD_REPEAT_DELAY = 110;
-const MOVE_DURATION = 136;
 const FLASH_DURATION = 190;
 const FLOOR_FADE_DURATION = 420;
-const INPUT_BUFFER_DELAY = 10;
-const MAX_BUFFERED_ACTIONS = 3;
 
 const canvas = document.getElementById("game-canvas");
 const context = canvas.getContext("2d");
@@ -36,19 +31,50 @@ const directionBindings = {
   KeyD: { logical: "right", vector: { x: 1, y: 0 } },
 };
 
+const enemyPalette = {
+  stalker: {
+    body: "#c94f45",
+    face: "#361011",
+    health: "#f0b97d",
+    aura: "rgba(201, 79, 69, 0.18)",
+    borderRadius: 11,
+  },
+  brute: {
+    body: "#8f2f39",
+    face: "#2c0d0d",
+    health: "#efb17c",
+    aura: "rgba(143, 47, 57, 0.22)",
+    borderRadius: 9,
+  },
+  wisp: {
+    body: "#4e78c9",
+    face: "#12203b",
+    health: "#9cc4ff",
+    aura: "rgba(78, 120, 201, 0.2)",
+    borderRadius: 13,
+  },
+  shade: {
+    body: "#7b5fc6",
+    face: "#1f1736",
+    health: "#cdb6ff",
+    aura: "rgba(123, 95, 198, 0.2)",
+    borderRadius: 12,
+  },
+};
+
 const state = {
   game: new DungeonGame(),
   heldDirections: new Map(),
   actionHeld: new Set(),
   nextAttackAt: 0,
-  queuedActions: [],
   playerRender: null,
   enemyRenders: new Map(),
   effects: [],
   floorFadeStartedAt: 0,
+  lastFrameAt: 0,
 };
 
-state.playerRender = { current: { ...state.game.player }, tween: null };
+state.playerRender = { current: { ...state.game.snapshot().player }, tween: null };
 syncEnemyRenders(state.game.snapshot().enemies);
 syncHud();
 requestAnimationFrame(frame);
@@ -59,8 +85,8 @@ window.addEventListener("keyup", onKeyUp);
 window.addEventListener("blur", () => {
   state.heldDirections.clear();
   state.actionHeld.clear();
-  state.queuedActions = [];
   state.nextAttackAt = 0;
+  state.lastFrameAt = 0;
 });
 
 function onKeyDown(event) {
@@ -70,16 +96,9 @@ function onKeyDown(event) {
     if (state.heldDirections.has(direction.logical)) {
       return;
     }
-    const now = performance.now();
     state.heldDirections.set(direction.logical, {
       vector: direction.vector,
-      at: now,
-      nextRepeatAt: now + HOLD_INITIAL_DELAY,
       logical: direction.logical,
-    });
-    dispatchAction({
-      key: `move:${direction.logical}`,
-      run: () => state.game.attemptMove(direction.vector),
     });
     return;
   }
@@ -90,8 +109,9 @@ function onKeyDown(event) {
       return;
     }
     state.actionHeld.add("attack");
-    state.nextAttackAt = performance.now() + ATTACK_HOLD_INITIAL_DELAY;
-    dispatchAction({ key: "attack", run: () => state.game.playerAttack() });
+    const now = performance.now();
+    performAttack(now);
+    state.nextAttackAt = now + ATTACK_HOLD_INITIAL_DELAY;
     return;
   }
 
@@ -101,7 +121,7 @@ function onKeyDown(event) {
       return;
     }
     state.actionHeld.add("dash");
-    dispatchAction({ key: "dash", run: () => state.game.playerDash() });
+    performDash(performance.now());
     return;
   }
 
@@ -114,9 +134,6 @@ function onKeyUp(event) {
   const direction = directionBindings[event.code];
   if (direction) {
     state.heldDirections.delete(direction.logical);
-    state.queuedActions = state.queuedActions.filter(
-      (action) => action.key !== `move:${direction.logical}` && action.key !== `move:hold:${direction.logical}`
-    );
   }
 
   if (event.code === "Space") {
@@ -129,50 +146,30 @@ function onKeyUp(event) {
   }
 }
 
-function dispatchAction(action) {
-  if (isAnimating()) {
-    queueAction(action, performance.now() + INPUT_BUFFER_DELAY);
-    return;
-  }
-  runAction(action);
-}
-
-function queueAction(action, readyAt = performance.now()) {
-  const queued = { ...action, readyAt };
-  if (state.queuedActions.length > 0) {
-    const last = state.queuedActions[state.queuedActions.length - 1];
-    if (last.key === queued.key) {
-      state.queuedActions[state.queuedActions.length - 1] = queued;
-      return;
-    }
-  }
-  state.queuedActions.push(queued);
-  if (state.queuedActions.length > MAX_BUFFERED_ACTIONS) {
-    state.queuedActions.shift();
-  }
-}
-
-function runAction(action) {
-  const startedAt = performance.now();
+function updateGameFrame(now, deltaSeconds) {
   const before = state.game.snapshot();
-  const result = action.run();
+  const result = state.game.updateRealtime(deltaSeconds, movementVector());
   const after = state.game.snapshot();
+  applySnapshotTransition(before, after, result, now);
+}
 
-  if (!samePosition(before.player, after.player)) {
-    state.playerRender.tween = {
-      start: before.player,
-      end: after.player,
-      startedAt,
-      duration: MOVE_DURATION,
-    };
-    state.playerRender.current = { ...before.player };
-  } else {
-    state.playerRender.tween = null;
-    state.playerRender.current = { ...after.player };
-  }
+function performAttack(now) {
+  const before = state.game.snapshot();
+  const result = state.game.realtimePlayerAttack();
+  const after = state.game.snapshot();
+  applySnapshotTransition(before, after, result, now);
+}
 
-  const beforeEnemies = new Map(before.enemies.map((enemy) => [enemyId(enemy), enemy]));
-  syncEnemyRenders(after.enemies, beforeEnemies, startedAt);
+function performDash(now) {
+  const before = state.game.snapshot();
+  const result = state.game.realtimePlayerDash();
+  const after = state.game.snapshot();
+  applySnapshotTransition(before, after, result, now);
+}
+
+function applySnapshotTransition(before, after, result, startedAt) {
+  state.playerRender.current = { ...after.player };
+  syncEnemyRenders(after.enemies);
   spawnEffects(before, after, result, startedAt);
   if (before.floor !== after.floor) {
     state.floorFadeStartedAt = startedAt;
@@ -219,16 +216,12 @@ function spawnEffects(before, after, result, startedAt) {
   }
 }
 
-function syncEnemyRenders(enemies, beforeEnemies = new Map(), startedAt = performance.now()) {
+function syncEnemyRenders(enemies) {
   const next = new Map();
   for (const enemy of enemies) {
-    const previous = beforeEnemies.get(enemyId(enemy));
     next.set(enemyId(enemy), {
-      current: previous ? { ...previous.position } : { ...enemy.position },
-      tween:
-        previous && !samePosition(previous.position, enemy.position)
-          ? { start: previous.position, end: enemy.position, startedAt, duration: MOVE_DURATION }
-          : null,
+      current: { ...enemy.position },
+      tween: null,
       enemy,
     });
   }
@@ -253,95 +246,35 @@ function resizeCanvasForDisplay() {
 }
 
 function frame(now) {
+  if (state.lastFrameAt === 0) {
+    state.lastFrameAt = now;
+  }
   resizeCanvasForDisplay();
-  updateAnimations(now);
-  processHeldMovement(now);
+  const deltaSeconds = Math.min((now - state.lastFrameAt) / 1000, 0.05);
+  state.lastFrameAt = now;
+  updateGameFrame(now, deltaSeconds);
   processHeldAttack(now);
+  state.effects = state.effects.filter((effect) => now - effect.startedAt < effect.duration);
   draw(now);
   requestAnimationFrame(frame);
 }
 
-function updateAnimations(now) {
-  if (state.playerRender.tween) {
-    const progress = Math.min(1, (now - state.playerRender.tween.startedAt) / state.playerRender.tween.duration);
-    state.playerRender.current = interpolate(state.playerRender.tween.start, state.playerRender.tween.end, smoothStep(progress));
-    if (progress >= 1) {
-      state.playerRender.current = { ...state.playerRender.tween.end };
-      state.playerRender.tween = null;
-    }
-  }
-
-  for (const render of state.enemyRenders.values()) {
-    if (!render.tween) {
-      render.current = { ...render.enemy.position };
-      continue;
-    }
-    const progress = Math.min(1, (now - render.tween.startedAt) / render.tween.duration);
-    render.current = interpolate(render.tween.start, render.tween.end, smoothStep(progress));
-    if (progress >= 1) {
-      render.current = { ...render.tween.end };
-      render.tween = null;
-    }
-  }
-
-  state.effects = state.effects.filter((effect) => now - effect.startedAt < effect.duration);
-
-  if (!isAnimating() && state.queuedActions.length > 0) {
-    const next = state.queuedActions[0];
-    if (now >= next.readyAt) {
-      state.queuedActions.shift();
-      runAction(next);
-    }
-  }
-}
-
-function processHeldMovement(now) {
-  if (state.heldDirections.size === 0) {
-    return;
-  }
-  const direction = [...state.heldDirections.values()].sort((left, right) => right.at - left.at)[0];
-  if (now < direction.nextRepeatAt) {
-    return;
-  }
-  if (isAnimating()) {
-    if (
-      state.playerRender.tween &&
-      !hasQueuedMoveAction(direction.logical) &&
-      now - state.playerRender.tween.startedAt >= state.playerRender.tween.duration * 0.72
-    ) {
-      queueHeldMove(direction, now);
-    }
-    return;
-  }
-  queueHeldMove(direction, now);
-}
-
-function queueHeldMove(direction, now) {
-  const target = {
-    x: state.game.player.x + direction.vector.x,
-    y: state.game.player.y + direction.vector.y,
-  };
-  if (!state.game.isWalkable(target) && !state.game.enemyAt(target)) {
-    direction.nextRepeatAt = now + HOLD_REPEAT_DELAY;
-    return;
-  }
-  direction.nextRepeatAt = now + HOLD_REPEAT_DELAY;
-  dispatchAction({
-    key: `move:hold:${direction.logical}`,
-    run: () => state.game.attemptMove(direction.vector),
-  });
-}
-
-function hasQueuedMoveAction(logical) {
-  return state.queuedActions.some((action) => action.key === `move:hold:${logical}`);
-}
-
 function processHeldAttack(now) {
-  if (!state.actionHeld.has("attack") || isAnimating() || now < state.nextAttackAt) {
+  if (!state.actionHeld.has("attack") || now < state.nextAttackAt) {
     return;
   }
   state.nextAttackAt = now + ATTACK_HOLD_REPEAT_DELAY;
-  dispatchAction({ key: "attack", run: () => state.game.playerAttack() });
+  performAttack(now);
+}
+
+function movementVector() {
+  let x = 0;
+  let y = 0;
+  for (const direction of state.heldDirections.values()) {
+    x += direction.vector.x;
+    y += direction.vector.y;
+  }
+  return { x, y };
 }
 
 function draw(now) {
@@ -415,8 +348,7 @@ function draw(now) {
 function drawPlayer(snapshot, offsetX, offsetY, now) {
   const pulse = Math.sin(now / 130) * 1.6;
   const position = state.playerRender.current;
-  const x = offsetX + position.x * CELL_SIZE;
-  const y = offsetY + position.y * CELL_SIZE;
+  const { x, y } = worldToScreen(position, offsetX, offsetY);
 
   context.fillStyle = "#081016";
   context.beginPath();
@@ -465,34 +397,68 @@ function drawPlayerHealthBar(snapshot, x, y) {
 }
 
 function drawEnemy(enemy, position, offsetX, offsetY, now) {
-  const x = offsetX + position.x * CELL_SIZE;
-  const y = offsetY + position.y * CELL_SIZE;
+  const { x, y } = worldToScreen(position, offsetX, offsetY);
   const bob = Math.sin(now / 140 + enemy.position.x * 0.6 + enemy.position.y * 0.3) * 1.8;
+  const palette = enemyPalette[enemy.kind] ?? enemyPalette.stalker;
+
+  context.fillStyle = palette.aura;
+  context.beginPath();
+  context.arc(x + CELL_SIZE / 2, y + CELL_SIZE / 2, 17 + Math.sin(now / 180) * 1.4, 0, Math.PI * 2);
+  context.fill();
 
   context.fillStyle = "#11080b";
   context.beginPath();
   context.ellipse(x + CELL_SIZE / 2, y + CELL_SIZE - 7, 15, 6, 0, 0, Math.PI * 2);
   context.fill();
 
-  context.fillStyle = enemy.kind === "brute" ? "#932b31" : "#cb5d4c";
-  roundRect(context, x + 8, y + 8 + bob, CELL_SIZE - 16, CELL_SIZE - 16, enemy.kind === "brute" ? 9 : 11);
+  context.fillStyle = palette.body;
+  roundRect(context, x + 8, y + 8 + bob, CELL_SIZE - 16, CELL_SIZE - 16, palette.borderRadius);
   context.fill();
 
-  context.fillStyle = "#2c0d0d";
+  context.fillStyle = palette.face;
   roundRect(context, x + 12, y + 14 + bob, CELL_SIZE - 24, 6, 3);
   context.fill();
+
+  drawEnemySigil(enemy, x, y, bob);
 
   context.fillStyle = "#23171a";
   roundRect(context, x + 6, y + CELL_SIZE - 9, CELL_SIZE - 12, 5, 3);
   context.fill();
-  context.fillStyle = "#f0b97d";
+  context.fillStyle = palette.health;
   roundRect(context, x + 7, y + CELL_SIZE - 8, (CELL_SIZE - 14) * (enemy.hp / enemy.maxHp), 3, 2);
   context.fill();
 }
 
+function drawEnemySigil(enemy, x, y, bob) {
+  const centerX = x + CELL_SIZE / 2;
+  const centerY = y + CELL_SIZE / 2 + bob + 3;
+  context.strokeStyle = "rgba(246, 239, 219, 0.66)";
+  context.lineWidth = 1.1;
+  context.beginPath();
+  if (enemy.kind === "wisp") {
+    context.arc(centerX, centerY, 5, 0.5, Math.PI * 1.9);
+    context.moveTo(centerX - 2, centerY - 6);
+    context.lineTo(centerX + 4, centerY - 2);
+  } else if (enemy.kind === "shade") {
+    context.moveTo(centerX - 5, centerY);
+    context.quadraticCurveTo(centerX, centerY - 6, centerX + 5, centerY);
+    context.moveTo(centerX - 4, centerY + 3);
+    context.quadraticCurveTo(centerX, centerY + 7, centerX + 4, centerY + 3);
+  } else if (enemy.kind === "brute") {
+    context.moveTo(centerX - 5, centerY - 4);
+    context.lineTo(centerX, centerY + 5);
+    context.lineTo(centerX + 5, centerY - 4);
+  } else {
+    context.moveTo(centerX - 5, centerY - 4);
+    context.lineTo(centerX + 5, centerY + 4);
+    context.moveTo(centerX + 5, centerY - 4);
+    context.lineTo(centerX - 5, centerY + 4);
+  }
+  context.stroke();
+}
+
 function drawRelic(position, offsetX, offsetY, now) {
-  const x = offsetX + position.x * CELL_SIZE;
-  const y = offsetY + position.y * CELL_SIZE;
+  const { x, y } = worldToScreen(position, offsetX, offsetY);
   const pulse = Math.sin(now / 180) * 3;
   context.fillStyle = "rgba(60, 125, 118, 0.35)";
   context.beginPath();
@@ -509,8 +475,7 @@ function drawRelic(position, offsetX, offsetY, now) {
 }
 
 function drawExit(position, unlocked, offsetX, offsetY, now) {
-  const x = offsetX + position.x * CELL_SIZE;
-  const y = offsetY + position.y * CELL_SIZE;
+  const { x, y } = worldToScreen(position, offsetX, offsetY);
   context.strokeStyle = unlocked ? "#88f0c2" : "#6d7480";
   context.lineWidth = 3;
   roundRect(context, x + 7, y + 7, CELL_SIZE - 14, CELL_SIZE - 14, 10);
@@ -523,8 +488,7 @@ function drawExit(position, unlocked, offsetX, offsetY, now) {
 }
 
 function drawItem(item, offsetX, offsetY, now) {
-  const x = offsetX + item.position.x * CELL_SIZE;
-  const y = offsetY + item.position.y * CELL_SIZE;
+  const { x, y } = worldToScreen(item.position, offsetX, offsetY);
   const bob = Math.sin(now / 150 + item.position.x * 0.4) * 2;
   if (item.kind === "gold") {
     context.fillStyle = "#f5d76d";
@@ -544,8 +508,7 @@ function drawItem(item, offsetX, offsetY, now) {
 function drawEffects(offsetX, offsetY, now) {
   for (const effect of state.effects) {
     const progress = (now - effect.startedAt) / effect.duration;
-    const x = offsetX + effect.position.x * CELL_SIZE;
-    const y = offsetY + effect.position.y * CELL_SIZE;
+    const { x, y } = worldToScreen(effect.position, offsetX, offsetY);
     if (effect.kind === "slash") {
       context.strokeStyle = `rgba(246, 238, 224, ${1 - progress})`;
       context.lineWidth = 3;
@@ -652,7 +615,7 @@ function syncHud() {
   ui.floor.textContent = String(snapshot.floor);
   ui.score.textContent = `${snapshot.score} / ${snapshot.kills}K`;
   ui.health.textContent = `${snapshot.hp}/${snapshot.maxHp}`;
-  ui.dash.textContent = snapshot.dashCooldown === 0 ? "Ready" : `${snapshot.dashCooldown}T`;
+  ui.dash.textContent = snapshot.dashCooldown <= 0.05 ? "Ready" : `${snapshot.dashCooldown.toFixed(1)}s`;
   ui.objective.textContent = snapshot.gameOver
     ? "Run ended. Restart."
     : snapshot.relicCollected
@@ -669,15 +632,22 @@ function syncHud() {
 
 function resetGame() {
   state.game.restart();
-  state.queuedActions = [];
   state.heldDirections.clear();
   state.actionHeld.clear();
   state.nextAttackAt = 0;
+  state.lastFrameAt = 0;
   state.effects = [];
-  state.playerRender = { current: { ...state.game.player }, tween: null };
+  state.playerRender = { current: { ...state.game.snapshot().player }, tween: null };
   state.floorFadeStartedAt = 0;
   syncEnemyRenders(state.game.snapshot().enemies);
   syncHud();
+}
+
+function worldToScreen(position, offsetX, offsetY) {
+  return {
+    x: offsetX + position.x * CELL_SIZE,
+    y: offsetY + position.y * CELL_SIZE,
+  };
 }
 
 function roundRect(ctx, x, y, width, height, radius) {
@@ -688,29 +658,6 @@ function roundRect(ctx, x, y, width, height, radius) {
   ctx.arcTo(x, y + height, x, y, radius);
   ctx.arcTo(x, y, x + width, y, radius);
   ctx.closePath();
-}
-
-function isAnimating() {
-  if (state.playerRender.tween) {
-    return true;
-  }
-  for (const render of state.enemyRenders.values()) {
-    if (render.tween) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function interpolate(start, end, progress) {
-  return {
-    x: start.x + (end.x - start.x) * progress,
-    y: start.y + (end.y - start.y) * progress,
-  };
-}
-
-function smoothStep(value) {
-  return value * value * (3 - 2 * value);
 }
 
 function samePosition(a, b) {

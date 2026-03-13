@@ -41,6 +41,22 @@ function manhattan(a, b) {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalize(vector) {
+  const length = Math.hypot(vector.x, vector.y);
+  if (length === 0) {
+    return { x: 0, y: 0 };
+  }
+  return { x: vector.x / length, y: vector.y / length };
+}
+
 function neighbors(position) {
   return [
     { x: position.x + 1, y: position.y },
@@ -50,6 +66,45 @@ function neighbors(position) {
   ];
 }
 
+const ENEMY_PROFILES = {
+  stalker: {
+    hp: 3,
+    damage: 1,
+    reward: 10,
+    speed: 2.35,
+    radius: 0.25,
+    attackCooldown: 0.9,
+    personality: "aggressive",
+  },
+  brute: {
+    hp: 4,
+    damage: 2,
+    reward: 14,
+    speed: 1.8,
+    radius: 0.3,
+    attackCooldown: 1.15,
+    personality: "aggressive",
+  },
+  wisp: {
+    hp: 2,
+    damage: 1,
+    reward: 12,
+    speed: 2.7,
+    radius: 0.22,
+    attackCooldown: 0.78,
+    personality: "random",
+  },
+  shade: {
+    hp: 3,
+    damage: 1,
+    reward: 13,
+    speed: 2.05,
+    radius: 0.24,
+    attackCooldown: 1,
+    personality: "confused",
+  },
+};
+
 export class DungeonGame {
   constructor({ width = GRID_WIDTH, height = GRID_HEIGHT, seed = Date.now() } = {}) {
     this.width = width;
@@ -57,6 +112,11 @@ export class DungeonGame {
     this.rng = makeRng(seed);
     this.maxHp = 8;
     this.playerAttackPower = 3;
+    this.playerMoveSpeed = 4.8;
+    this.playerRadius = 0.28;
+    this.enemyAttackRange = 0.76;
+    this.alertDuration = 1.35;
+    this.realtimeDashCooldownDuration = 2.4;
     this.restart();
   }
 
@@ -72,12 +132,16 @@ export class DungeonGame {
     this.gameOver = false;
     this.turnCount = 0;
     this.dashCooldown = 0;
+    this.alertTicks = 0;
+    this.alertTimer = 0;
+    this.realtimeDashCooldown = 0;
     this.messageLog = [];
     this.generateFloor();
     this.pushMessage("Descend into the vault and recover the relic.");
   }
 
   attemptMove(direction) {
+    this.syncTurnState();
     if (this.gameOver) {
       return { gameOver: true, logMessage: "The dungeon run is over." };
     }
@@ -93,6 +157,7 @@ export class DungeonGame {
     }
 
     this.player = target;
+    this.alertTicks = 3;
     const pickedItem = this.collectItemAtPlayer();
     if (samePosition(this.player, this.relic) && !this.relicCollected) {
       this.relicCollected = true;
@@ -105,6 +170,7 @@ export class DungeonGame {
   }
 
   playerAttack() {
+    this.syncTurnState();
     if (this.gameOver) {
       return { gameOver: true, logMessage: "The dungeon run is over." };
     }
@@ -134,6 +200,7 @@ export class DungeonGame {
   }
 
   playerDash() {
+    this.syncTurnState();
     if (this.gameOver) {
       return { gameOver: true, logMessage: "The dungeon run is over." };
     }
@@ -156,6 +223,7 @@ export class DungeonGame {
 
     this.player = nextPosition;
     this.dashCooldown = 4;
+    this.alertTicks = 4;
     const pickedItem = this.collectItemAtPlayer();
     if (samePosition(this.player, this.relic) && !this.relicCollected) {
       this.relicCollected = true;
@@ -165,6 +233,308 @@ export class DungeonGame {
     }
     const floorCleared = this.tryExitFloor();
     return this.finishTurn({ dashed: true, pickedItem, floorCleared });
+  }
+
+  updateRealtime(deltaSeconds, movementInput = { x: 0, y: 0 }) {
+    if (this.gameOver) {
+      return { gameOver: true, logMessage: "The dungeon run is over." };
+    }
+
+    const clampedDelta = Math.min(deltaSeconds, 0.05);
+    if (this.realtimeDashCooldown > 0) {
+      this.realtimeDashCooldown = Math.max(0, this.realtimeDashCooldown - clampedDelta);
+    }
+
+    const direction = normalize(movementInput);
+    let playerMoved = false;
+    if (direction.x !== 0 || direction.y !== 0) {
+      this.facing = direction;
+      playerMoved = this.moveWorldEntity(this.playerWorld, direction, this.playerMoveSpeed * clampedDelta, null, this.playerRadius);
+      if (playerMoved) {
+        this.alertTimer = this.alertDuration;
+      }
+    } else if (this.alertTimer > 0) {
+      this.alertTimer = Math.max(0, this.alertTimer - clampedDelta);
+    }
+
+    const pickedItem = this.collectItemAtWorldPosition();
+    let relicCollected = false;
+    if (!this.relicCollected && distance(this.playerWorld, this.relic) <= 0.34) {
+      this.relicCollected = true;
+      this.exitUnlocked = true;
+      this.score += 25;
+      relicCollected = true;
+      this.pushMessage("The relic hums. The exit gate is open.");
+    }
+
+    if (this.exitUnlocked && distance(this.playerWorld, this.exit) <= 0.38) {
+      const previousFloor = this.floor;
+      const floorCleared = this.tryExitFloor();
+      return {
+        moved: playerMoved,
+        pickedItem,
+        relicCollected,
+        floorCleared,
+        floorChanged: this.floor !== previousFloor,
+        damageTaken: 0,
+      };
+    }
+
+    let damageTaken = 0;
+    const trackingPlayer = playerMoved || this.alertTimer > 0;
+    for (const enemy of this.enemies) {
+      enemy.attackCooldown = Math.max(0, (enemy.attackCooldown ?? 0) - clampedDelta);
+      const enemyPosition = enemy.worldPosition ?? enemy.position;
+      const enemyDistance = distance(enemyPosition, this.playerWorld);
+      if (enemyDistance <= this.enemyAttackRange) {
+        if (enemy.attackCooldown <= 0) {
+          this.hp -= enemy.damage;
+          damageTaken += enemy.damage;
+          enemy.attackCooldown = this.enemyProfile(enemy.kind).attackCooldown;
+        }
+        continue;
+      }
+
+      const desiredDirection = this.enemyDesiredDirection(enemy, enemyPosition, trackingPlayer, clampedDelta);
+      this.moveWorldEntity(
+        enemyPosition,
+        desiredDirection,
+        this.enemyProfile(enemy.kind).speed * clampedDelta,
+        enemy,
+        this.enemyProfile(enemy.kind).radius
+      );
+      enemy.worldPosition = enemyPosition;
+    }
+
+    if (this.hp <= 0) {
+      this.gameOver = true;
+      const finalMessage = "You fall beneath the dungeon.";
+      this.pushMessage(finalMessage);
+      return { gameOver: true, damageTaken, logMessage: finalMessage };
+    }
+
+    return {
+      moved: playerMoved,
+      pickedItem,
+      relicCollected,
+      damageTaken,
+      enemyMoved: true,
+    };
+  }
+
+  directionTowardPlayer(enemyPosition) {
+    return normalize({
+      x: this.playerWorld.x - enemyPosition.x,
+      y: this.playerWorld.y - enemyPosition.y,
+    });
+  }
+
+  directionAwayFromPlayer(enemyPosition) {
+    return normalize({
+      x: enemyPosition.x - this.playerWorld.x,
+      y: enemyPosition.y - this.playerWorld.y,
+    });
+  }
+
+  enemyDesiredDirection(enemy, enemyPosition, trackingPlayer, deltaSeconds) {
+    const personality = enemy.personality ?? this.enemyProfile(enemy.kind).personality;
+    if (!trackingPlayer) {
+      return this.directionForRoaming(enemy, deltaSeconds);
+    }
+
+    if (personality === "random") {
+      if (this.rng.next() < 0.72) {
+        return this.directionForRoaming(enemy, deltaSeconds);
+      }
+      return this.directionTowardPlayer(enemyPosition);
+    }
+
+    if (personality === "confused") {
+      enemy.confusedTimer = (enemy.confusedTimer ?? 0) - deltaSeconds;
+      if (enemy.confusedTimer <= 0) {
+        enemy.confusedTimer = this.rng.next() * 0.9 + 0.35;
+        enemy.confusedMode = enemy.confusedMode === "flee" ? "chase" : "flee";
+      }
+      return enemy.confusedMode === "flee"
+        ? this.directionAwayFromPlayer(enemyPosition)
+        : this.directionTowardPlayer(enemyPosition);
+    }
+
+    return this.directionTowardPlayer(enemyPosition);
+  }
+
+  directionForRoaming(enemy, deltaSeconds) {
+    enemy.wanderTimer = (enemy.wanderTimer ?? 0) - deltaSeconds;
+    if (enemy.wanderTimer <= 0 || !enemy.wanderDirection) {
+      enemy.wanderDirection = this.randomWanderDirection();
+      enemy.wanderTimer = this.rng.next() * 1.2 + 0.5;
+    }
+    return normalize(enemy.wanderDirection);
+  }
+
+  moveWorldEntity(position, direction, distanceAmount, selfEnemy = null, radius = this.playerRadius) {
+    if (!position || distanceAmount <= 0 || (direction.x === 0 && direction.y === 0)) {
+      return false;
+    }
+
+    const normalized = normalize(direction);
+    const deltaX = normalized.x * distanceAmount;
+    const deltaY = normalized.y * distanceAmount;
+    let moved = false;
+
+    if (deltaX !== 0) {
+      const candidate = { x: position.x + deltaX, y: position.y };
+      if (!this.collidesAtWorldPosition(candidate, radius, selfEnemy)) {
+        position.x = candidate.x;
+        moved = true;
+      }
+    }
+
+    if (deltaY !== 0) {
+      const candidate = { x: position.x, y: position.y + deltaY };
+      if (!this.collidesAtWorldPosition(candidate, radius, selfEnemy)) {
+        position.y = candidate.y;
+        moved = true;
+      }
+    }
+
+    return moved;
+  }
+
+  collidesAtWorldPosition(position, radius, selfEnemy = null) {
+    const minTileX = Math.floor(position.x - radius - 0.5);
+    const maxTileX = Math.ceil(position.x + radius + 0.5);
+    const minTileY = Math.floor(position.y - radius - 0.5);
+    const maxTileY = Math.ceil(position.y + radius + 0.5);
+
+    for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
+      for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+        if (!this.walls.has(`${tileX},${tileY}`)) {
+          continue;
+        }
+        const nearestX = clamp(position.x, tileX - 0.5, tileX + 0.5);
+        const nearestY = clamp(position.y, tileY - 0.5, tileY + 0.5);
+        if (Math.hypot(position.x - nearestX, position.y - nearestY) < radius) {
+          return true;
+        }
+      }
+    }
+
+    for (const enemy of this.enemies) {
+      if (enemy === selfEnemy) {
+        continue;
+      }
+      const enemyPosition = enemy.worldPosition ?? enemy.position;
+      const enemyRadius = this.enemyProfile(enemy.kind).radius;
+      if (distance(position, enemyPosition) < radius + enemyRadius - 0.02) {
+        return true;
+      }
+    }
+
+    if (selfEnemy && distance(position, this.playerWorld) < radius + this.playerRadius - 0.02) {
+      return true;
+    }
+
+    return false;
+  }
+
+  collectItemAtWorldPosition() {
+    const item = this.items.find((candidate) => distance(candidate.position, this.playerWorld) <= 0.34);
+    if (!item) {
+      return null;
+    }
+    this.items = this.items.filter((candidate) => candidate !== item);
+    if (item.kind === "gold") {
+      this.score += item.value;
+    } else if (item.kind === "potion") {
+      this.hp = Math.min(this.maxHp, this.hp + item.value);
+    }
+    return item.kind;
+  }
+
+  realtimePlayerAttack() {
+    if (this.gameOver) {
+      return { gameOver: true, logMessage: "The dungeon run is over." };
+    }
+
+    const facing = normalize(this.facing.x === 0 && this.facing.y === 0 ? { x: 0, y: 1 } : this.facing);
+    let enemyDefeated = 0;
+    let hit = false;
+    for (const enemy of [...this.enemies]) {
+      const enemyPosition = enemy.worldPosition ?? enemy.position;
+      const toEnemy = {
+        x: enemyPosition.x - this.playerWorld.x,
+        y: enemyPosition.y - this.playerWorld.y,
+      };
+      const enemyDistance = Math.hypot(toEnemy.x, toEnemy.y);
+      if (enemyDistance > 1.45) {
+        continue;
+      }
+      const enemyDirection = enemyDistance === 0 ? facing : { x: toEnemy.x / enemyDistance, y: toEnemy.y / enemyDistance };
+      const alignment = enemyDirection.x * facing.x + enemyDirection.y * facing.y;
+      if (alignment < 0.18) {
+        continue;
+      }
+
+      enemy.hp -= this.playerAttackPower;
+      hit = true;
+      if (enemy.hp <= 0) {
+        this.enemies = this.enemies.filter((candidate) => candidate !== enemy);
+        enemyDefeated += 1;
+        this.kills += 1;
+        this.score += enemy.reward;
+      }
+    }
+
+    const logMessage = hit ? "Your blade carves a path." : "Your swing cuts only dust.";
+    this.pushMessage(logMessage);
+    return { attacked: true, enemyDefeated, logMessage };
+  }
+
+  realtimePlayerDash() {
+    if (this.gameOver) {
+      return { gameOver: true, logMessage: "The dungeon run is over." };
+    }
+    if (this.realtimeDashCooldown > 0) {
+      return { logMessage: `Dash recharges in ${this.realtimeDashCooldown.toFixed(1)}s.` };
+    }
+
+    const facing = normalize(this.facing.x === 0 && this.facing.y === 0 ? { x: 0, y: 1 } : this.facing);
+    const start = clonePosition(this.playerWorld);
+    const steps = 14;
+    for (let step = 0; step < steps; step += 1) {
+      const candidate = {
+        x: this.playerWorld.x + (facing.x * 2) / steps,
+        y: this.playerWorld.y + (facing.y * 2) / steps,
+      };
+      if (this.collidesAtWorldPosition(candidate, this.playerRadius, null)) {
+        break;
+      }
+      this.playerWorld = candidate;
+    }
+
+    if (distance(start, this.playerWorld) < 0.08) {
+      return { logMessage: "No room to dash forward." };
+    }
+
+    this.realtimeDashCooldown = this.realtimeDashCooldownDuration;
+    this.alertTimer = this.alertDuration;
+    const pickedItem = this.collectItemAtWorldPosition();
+    if (!this.relicCollected && distance(this.playerWorld, this.relic) <= 0.34) {
+      this.relicCollected = true;
+      this.exitUnlocked = true;
+      this.score += 25;
+      this.pushMessage("You snatch the relic mid-dash. The exit gate opens.");
+    }
+    const previousFloor = this.floor;
+    const floorCleared = this.exitUnlocked && distance(this.playerWorld, this.exit) <= 0.38 ? this.tryExitFloor() : false;
+    return {
+      dashed: true,
+      pickedItem,
+      floorCleared,
+      floorChanged: this.floor !== previousFloor,
+      logMessage: floorCleared ? "You descend deeper into the dungeon." : "",
+    };
   }
 
   finishTurn({
@@ -190,7 +560,6 @@ export class DungeonGame {
       return summary;
     }
 
-    const damageTaken = this.advanceEnemies();
     this.turnCount += 1;
     if (this.dashCooldown > 0) {
       this.dashCooldown -= 1;
@@ -206,13 +575,12 @@ export class DungeonGame {
         attacked,
         pickedItem,
         enemyDefeated,
-        damageTaken,
         gameOver: true,
         logMessage: finalMessage,
       };
     }
 
-    const summaryMessage = logMessage || this.composeSummary(pickedItem, enemyDefeated, damageTaken);
+    const summaryMessage = logMessage || this.composeSummary(pickedItem, enemyDefeated, 0);
     this.pushMessage(summaryMessage);
     return {
       moved,
@@ -220,8 +588,49 @@ export class DungeonGame {
       attacked,
       pickedItem,
       enemyDefeated,
-      damageTaken,
+      damageTaken: 0,
       logMessage: summaryMessage,
+    };
+  }
+
+  worldTick() {
+    this.syncTurnState();
+    if (this.gameOver) {
+      return { gameOver: true, logMessage: "The dungeon run is over." };
+    }
+
+    const trackingPlayer = this.alertTicks > 0;
+    const { damageTaken, enemyMoved } = this.advanceEnemies({ trackingPlayer });
+    if (this.alertTicks > 0) {
+      this.alertTicks -= 1;
+    }
+
+    if (this.hp <= 0) {
+      this.gameOver = true;
+      const finalMessage = "You fall beneath the dungeon.";
+      this.pushMessage(finalMessage);
+      return {
+        damageTaken,
+        gameOver: true,
+        enemyMoved,
+        logMessage: finalMessage,
+      };
+    }
+
+    const logMessage = damageTaken
+      ? `The vault's guardians strike for ${damageTaken}.`
+      : trackingPlayer
+        ? "The vault stirs around your steps."
+        : "";
+
+    if (logMessage) {
+      this.pushMessage(logMessage);
+    }
+
+    return {
+      damageTaken,
+      enemyMoved,
+      logMessage,
     };
   }
 
@@ -301,10 +710,64 @@ export class DungeonGame {
       this.enemies = enemies;
       this.relicCollected = false;
       this.exitUnlocked = false;
+      this.alertTicks = 0;
+      this.initializeRealtimeState();
       return;
     }
 
     throw new Error("Unable to generate a valid dungeon floor.");
+  }
+
+  initializeRealtimeState() {
+    this.playerWorld = clonePosition(this.player);
+    this.alertTimer = 0;
+    this.realtimeDashCooldown = 0;
+    for (const enemy of this.enemies) {
+      enemy.worldPosition = clonePosition(enemy.position);
+      enemy.wanderDirection = this.randomWanderDirection();
+      enemy.wanderTimer = this.rng.next() * 0.8 + 0.35;
+      enemy.attackCooldown = 0;
+      enemy.personality = enemy.personality ?? this.enemyProfile(enemy.kind).personality;
+      enemy.confusedTimer = this.rng.next() * 0.7 + 0.2;
+    }
+  }
+
+  randomWanderDirection() {
+    return clonePosition(this.rng.choice([
+      { x: 1, y: 0 },
+      { x: -1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 0, y: -1 },
+      { x: 1, y: 1 },
+      { x: 1, y: -1 },
+      { x: -1, y: 1 },
+      { x: -1, y: -1 },
+    ]));
+  }
+
+  enemyProfile(kind) {
+    return ENEMY_PROFILES[kind] ?? ENEMY_PROFILES.stalker;
+  }
+
+  createEnemy(kind, position) {
+    const profile = this.enemyProfile(kind);
+    return {
+      id: this.nextEnemyId++,
+      kind,
+      position: clonePosition(position),
+      hp: profile.hp,
+      maxHp: profile.hp,
+      damage: profile.damage,
+      reward: profile.reward,
+      personality: profile.personality,
+    };
+  }
+
+  syncTurnState() {
+    this.playerWorld = clonePosition(this.player);
+    for (const enemy of this.enemies) {
+      enemy.worldPosition = clonePosition(enemy.position);
+    }
   }
 
   buildWalls() {
@@ -365,14 +828,15 @@ export class DungeonGame {
     this.rng.shuffle(candidates);
     const enemies = [];
     const enemyCount = Math.min(7, 2 + this.floor * 2);
+    const kinds = this.floor >= 4
+      ? ["stalker", "wisp", "shade", "brute"]
+      : this.floor >= 2
+        ? ["stalker", "wisp", "brute"]
+        : ["stalker", "wisp"];
 
     for (let index = 0; index < enemyCount && candidates.length > 0; index += 1) {
-      const kind = this.floor >= 3 && index % 3 === 2 ? "brute" : "stalker";
-      enemies.push(
-        kind === "brute"
-          ? { id: this.nextEnemyId++, kind, position: candidates.pop(), hp: 4, maxHp: 4, damage: 2, reward: 14 }
-          : { id: this.nextEnemyId++, kind, position: candidates.pop(), hp: 3, maxHp: 3, damage: 1, reward: 10 }
-      );
+      const kind = kinds[index % kinds.length];
+      enemies.push(this.createEnemy(kind, candidates.pop()));
     }
     return enemies;
   }
@@ -392,7 +856,9 @@ export class DungeonGame {
   }
 
   tryExitFloor() {
-    if (!samePosition(this.player, this.exit) || !this.exitUnlocked) {
+    const playerPosition = this.playerWorld ?? this.player;
+    const atExit = this.playerWorld ? distance(playerPosition, this.exit) <= 0.38 : samePosition(playerPosition, this.exit);
+    if (!atExit || !this.exitUnlocked) {
       return false;
     }
     this.floor += 1;
@@ -403,7 +869,7 @@ export class DungeonGame {
     return true;
   }
 
-  advanceEnemies() {
+  advanceEnemies({ trackingPlayer = false } = {}) {
     let totalDamage = 0;
     const attackers = this.enemies.filter((enemy) => manhattan(enemy.position, this.player) === 1);
     if (attackers.length > 0) {
@@ -411,19 +877,21 @@ export class DungeonGame {
         this.hp -= enemy.damage;
         totalDamage += enemy.damage;
       }
-      return totalDamage;
+      return { damageTaken: totalDamage, enemyMoved: false };
     }
 
+    let enemyMoved = false;
     for (const enemy of this.enemies) {
-      const step = this.enemyStep(enemy);
+      const step = this.enemyStep(enemy, trackingPlayer);
       if (step) {
         enemy.position = step;
+        enemyMoved = true;
       }
     }
-    return totalDamage;
+    return { damageTaken: totalDamage, enemyMoved };
   }
 
-  enemyStep(enemy) {
+  enemyStep(enemy, trackingPlayer = false) {
     const options = neighbors(enemy.position)
       .filter((position) => this.isWalkable(position))
       .filter((position) => !samePosition(position, this.player))
@@ -434,7 +902,7 @@ export class DungeonGame {
       return null;
     }
 
-    if (enemy.kind === "brute" || manhattan(enemy.position, this.player) <= 7) {
+    if (trackingPlayer) {
       const bestDistance = Math.min(...options.map((option) => option.distance));
       const bestOptions = options.filter((option) => option.distance === bestDistance);
       return clonePosition(this.rng.choice(bestOptions).position);
@@ -444,7 +912,7 @@ export class DungeonGame {
   }
 
   attackPositions() {
-    const { x, y } = this.player;
+    const { x, y } = this.playerWorld ?? this.player;
     const { x: dx, y: dy } = this.facing;
     const targets = [{ x: x + dx, y: y + dy }];
     if (dx !== 0) {
@@ -513,16 +981,19 @@ export class DungeonGame {
       hp: this.hp,
       maxHp: this.maxHp,
       facing: { ...this.facing },
-      player: { ...this.player },
+      player: { ...(this.playerWorld ?? this.player) },
       relic: { ...this.relic },
       exit: { ...this.exit },
       relicCollected: this.relicCollected,
       exitUnlocked: this.exitUnlocked,
       gameOver: this.gameOver,
-      dashCooldown: this.dashCooldown,
+      dashCooldown: this.playerWorld ? this.realtimeDashCooldown : this.dashCooldown,
       walls: new Set(this.walls),
       items: this.items.map((item) => ({ ...item, position: { ...item.position } })),
-      enemies: this.enemies.map((enemy) => ({ ...enemy, position: { ...enemy.position } })),
+      enemies: this.enemies.map((enemy) => ({
+        ...enemy,
+        position: { ...(enemy.worldPosition ?? enemy.position) },
+      })),
       messageLog: [...this.messageLog],
       attackPositions: this.attackPositions(),
     };
