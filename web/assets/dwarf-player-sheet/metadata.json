@@ -1,0 +1,16 @@
+{
+  "frameWidth": 331,
+  "frameHeight": 486,
+  "frames": {
+    "rotations": {
+      "south": "./south.png",
+      "south-east": "./south-east.png",
+      "east": "./east.png",
+      "north-east": "./north-east.png",
+      "north": "./north.png",
+      "north-west": "./north-west.png",
+      "west": "./west.png",
+      "south-west": "./south-west.png"
+    }
+  }
+}

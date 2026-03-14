@@ -1,5 +1,5 @@
 import { DungeonGame } from "./game-logic.js";
-import { updateEnemyFacingState } from "./render-facing.js";
+import { directionLabelFromVector, updateEnemyFacingState } from "./render-facing.js";
 
 const CELL_SIZE = 46;
 const BOARD_PADDING = 22;
@@ -10,7 +10,16 @@ const FLOOR_FADE_DURATION = 420;
 
 const canvas = document.getElementById("game-canvas");
 const context = canvas.getContext("2d");
-const restartButton = document.getElementById("restart-button");
+const mainMenuButton = document.getElementById("main-menu-button");
+const mainMenu = document.getElementById("main-menu");
+const menuPanel = document.getElementById("menu-panel");
+const enemyCodex = document.getElementById("enemy-codex");
+const startRunButton = document.getElementById("start-run-button");
+const restartRunButton = document.getElementById("restart-run-button");
+const quitRunButton = document.getElementById("quit-run-button");
+const enemiesButton = document.getElementById("enemies-button");
+const closeEnemiesButton = document.getElementById("close-enemies-button");
+const characterButtons = [...document.querySelectorAll("[data-character]")];
 
 const ui = {
   floor: document.getElementById("floor-value"),
@@ -133,8 +142,59 @@ const itemArt = {
   },
 };
 
+const playerCharacters = {
+  elven: {
+    name: "Elven Delver",
+    accent: "#9fdab5",
+    glow: "rgba(161, 225, 183, 0.18)",
+    metadataUrl: "./assets/elven-player-sheet/metadata.json",
+    frames: new Map(),
+    ready: false,
+    drawScale: 0.22,
+    yOffset: 2,
+    shadowColor: "rgba(77, 123, 96, 0.3)",
+    shadowBlur: 14,
+    shadowRadiusX: 16,
+    shadowRadiusY: 6,
+    ringOffsetY: 2,
+  },
+  dwarf: {
+    name: "Dwarven Vaultbreaker",
+    accent: "#e7c27a",
+    glow: "rgba(231, 194, 122, 0.16)",
+    metadataUrl: "./assets/dwarf-player-sheet/metadata.json",
+    frames: new Map(),
+    ready: false,
+    drawScale: 0.22,
+    yOffset: 2,
+    shadowColor: "rgba(150, 110, 56, 0.34)",
+    shadowBlur: 14,
+    shadowRadiusX: 17,
+    shadowRadiusY: 6,
+    ringOffsetY: 0,
+  },
+  rune: {
+    name: "Rune-Warden",
+    accent: "#86a7ff",
+    glow: "rgba(134, 167, 255, 0.16)",
+    metadataUrl: "./assets/rune-player-sheet/metadata.json",
+    frames: new Map(),
+    ready: false,
+    drawScale: 0.22,
+    yOffset: 2,
+    shadowColor: "rgba(72, 98, 160, 0.28)",
+    shadowBlur: 14,
+    shadowRadiusX: 16,
+    shadowRadiusY: 6,
+    ringOffsetY: 2,
+  },
+};
+
 const state = {
   game: new DungeonGame(),
+  screen: "menu",
+  hasStartedRun: false,
+  selectedCharacter: "elven",
   heldDirections: new Map(),
   actionHeld: new Set(),
   nextAttackAt: 0,
@@ -145,14 +205,25 @@ const state = {
   lastFrameAt: 0,
 };
 
-state.playerRender = { current: { ...state.game.snapshot().player }, tween: null };
+state.playerRender = { current: { ...state.game.snapshot().player }, tween: null, facing: "south" };
 syncEnemyRenders(state.game.snapshot().enemies);
 syncHud();
+selectCharacter(state.selectedCharacter);
+syncMenuButtons();
 loadEnemyArt();
+loadPlayerArt();
 loadItemArt();
 requestAnimationFrame(frame);
 
-restartButton.addEventListener("click", () => resetGame());
+mainMenuButton.addEventListener("click", () => onMainMenuButton());
+startRunButton.addEventListener("click", () => startRun());
+restartRunButton.addEventListener("click", () => restartFromMenu());
+quitRunButton.addEventListener("click", () => quitFromMenu());
+enemiesButton.addEventListener("click", () => showEnemies());
+closeEnemiesButton.addEventListener("click", () => showMainMenu());
+for (const button of characterButtons) {
+  button.addEventListener("click", () => selectCharacter(button.dataset.character));
+}
 window.addEventListener("keydown", onKeyDown);
 window.addEventListener("keyup", onKeyUp);
 window.addEventListener("blur", () => {
@@ -163,6 +234,24 @@ window.addEventListener("blur", () => {
 });
 
 function onKeyDown(event) {
+  if (event.code === "Escape") {
+    event.preventDefault();
+    if (state.screen === "game") {
+      pauseToMainMenu();
+    } else {
+      showMainMenu();
+    }
+    return;
+  }
+
+  if (state.screen !== "game") {
+    if (event.code === "Enter" && state.screen === "menu") {
+      event.preventDefault();
+      startRun();
+    }
+    return;
+  }
+
   const direction = directionBindings[event.code];
   if (direction) {
     event.preventDefault();
@@ -337,6 +426,34 @@ async function loadEnemyArt() {
   }
 }
 
+async function loadPlayerArt() {
+  for (const asset of Object.values(playerCharacters)) {
+    if (!asset.metadataUrl) {
+      asset.ready = false;
+      continue;
+    }
+    try {
+      const response = await fetch(asset.metadataUrl);
+      if (!response.ok) {
+        asset.ready = false;
+        continue;
+      }
+      const metadata = await response.json();
+      const metadataBase = new URL(asset.metadataUrl, window.location.href);
+      const entries = Object.entries(metadata.frames?.rotations ?? {});
+      await Promise.all(entries.map(async ([direction, relativePath]) => {
+        const image = new Image();
+        image.src = new URL(relativePath, metadataBase).toString();
+        await decodeImage(image);
+        asset.frames.set(direction, image);
+      }));
+      asset.ready = asset.frames.size > 0;
+    } catch {
+      asset.ready = false;
+    }
+  }
+}
+
 async function loadItemArt() {
   for (const asset of Object.values(itemArt)) {
     try {
@@ -386,9 +503,11 @@ function frame(now) {
   resizeCanvasForDisplay();
   const deltaSeconds = Math.min((now - state.lastFrameAt) / 1000, 0.05);
   state.lastFrameAt = now;
-  updateGameFrame(now, deltaSeconds);
-  processHeldAttack(now);
-  state.effects = state.effects.filter((effect) => now - effect.startedAt < effect.duration);
+  if (state.screen === "game") {
+    updateGameFrame(now, deltaSeconds);
+    processHeldAttack(now);
+    state.effects = state.effects.filter((effect) => now - effect.startedAt < effect.duration);
+  }
   draw(now);
   requestAnimationFrame(frame);
 }
@@ -483,6 +602,22 @@ function drawPlayer(snapshot, offsetX, offsetY, now) {
   const pulse = Math.sin(now / 130) * 1.6;
   const position = state.playerRender.current;
   const { x, y } = worldToScreen(position, offsetX, offsetY);
+  const character = playerCharacters[state.selectedCharacter];
+  const playerFacing = directionLabelFromVector(
+    snapshot.facing.x,
+    snapshot.facing.y,
+    state.playerRender.facing ?? "south"
+  );
+  state.playerRender.facing = playerFacing;
+
+  if (character?.ready) {
+    const frame = character.frames.get(playerFacing) ?? character.frames.get("south");
+    if (frame) {
+      drawPlayerSprite(snapshot, frame, x, y, pulse, character);
+      drawPlayerHealthBar(snapshot, x, y);
+      return;
+    }
+  }
 
   context.fillStyle = "#081016";
   context.beginPath();
@@ -497,7 +632,7 @@ function drawPlayer(snapshot, offsetX, offsetY, now) {
     context.stroke();
   }
 
-  context.fillStyle = "#f5c451";
+  context.fillStyle = character?.accent ?? "#f5c451";
   context.beginPath();
   context.arc(x + CELL_SIZE / 2, y + CELL_SIZE / 2, 16 + pulse, 0, Math.PI * 2);
   context.fill();
@@ -517,6 +652,69 @@ function drawPlayer(snapshot, offsetX, offsetY, now) {
   context.stroke();
 
   drawPlayerHealthBar(snapshot, x, y);
+}
+
+function drawPlayerSprite(snapshot, frame, x, y, pulse, art) {
+  const ringCenterY = y + CELL_SIZE / 2 + (art.ringOffsetY ?? 0);
+  context.fillStyle = "rgba(8, 14, 18, 0.92)";
+  context.beginPath();
+  context.ellipse(
+    x + CELL_SIZE / 2,
+    y + CELL_SIZE - 4,
+    art.shadowRadiusX ?? 19,
+    art.shadowRadiusY ?? 7,
+    0,
+    0,
+    Math.PI * 2
+  );
+  context.fill();
+
+  if (art.glow) {
+    context.fillStyle = art.glow;
+    context.beginPath();
+    context.arc(x + CELL_SIZE / 2, ringCenterY - 2, 14 + pulse * 0.55, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  const drawWidth = frame.width * art.drawScale;
+  const drawHeight = frame.height * art.drawScale;
+  const drawX = x + (CELL_SIZE - drawWidth) / 2;
+  const drawY = y + (CELL_SIZE - drawHeight) / 2 + art.yOffset;
+
+  context.save();
+  context.shadowColor = art.shadowColor;
+  context.shadowBlur = art.shadowBlur;
+  context.drawImage(frame, drawX, drawY, drawWidth, drawHeight);
+  context.restore();
+
+  context.strokeStyle = snapshot.hp <= 2 && !snapshot.gameOver ? "#ff7a63" : "rgba(255, 244, 215, 0.24)";
+  context.lineWidth = snapshot.hp <= 2 && !snapshot.gameOver ? 2 : 1.4;
+  context.beginPath();
+  context.arc(x + CELL_SIZE / 2, ringCenterY, 17 + pulse * 0.22, 0, Math.PI * 2);
+  context.stroke();
+
+  context.strokeStyle = art.accent;
+  context.lineWidth = 1.6;
+  context.beginPath();
+  context.moveTo(x + CELL_SIZE / 2 - 7, y + 7);
+  context.lineTo(x + CELL_SIZE / 2, y + 3);
+  context.lineTo(x + CELL_SIZE / 2 + 7, y + 7);
+  context.stroke();
+
+  context.strokeStyle = "rgba(245, 249, 240, 0.92)";
+  context.lineWidth = 1.4;
+  context.beginPath();
+  context.arc(x + CELL_SIZE / 2, y + CELL_SIZE / 2, 4.1, 0, Math.PI * 2);
+  context.stroke();
+
+  context.strokeStyle = art.accent;
+  context.lineWidth = 1.2;
+  context.beginPath();
+  context.moveTo(x + CELL_SIZE / 2 - 6, ringCenterY);
+  context.lineTo(x + CELL_SIZE / 2 + 6, ringCenterY);
+  context.moveTo(x + CELL_SIZE / 2, ringCenterY - 6);
+  context.lineTo(x + CELL_SIZE / 2, ringCenterY + 6);
+  context.stroke();
 }
 
 function drawPlayerHealthBar(snapshot, x, y) {
@@ -812,25 +1010,105 @@ function syncHud() {
       ? "Take the exit."
       : snapshot.hp <= 2
         ? "Low HP. Find a potion."
-        : "Find the relic.";
+        : `${snapshot.attackStyle} chain ready. Find the relic.`;
   const status = snapshot.messageLog.at(-1) || "Explore the chamber.";
   ui.status.textContent =
     snapshot.hp <= 2 && !snapshot.gameOver
-      ? `${snapshot.hp}/${snapshot.maxHp} HP. ${status}`
-      : status;
+      ? `${snapshot.hp}/${snapshot.maxHp} HP. ${snapshot.attackStyle}. ${status}`
+      : `${snapshot.attackStyle}. ${status}`;
 }
 
 function resetGame() {
   state.game.restart();
+  state.hasStartedRun = true;
+  state.screen = "game";
   state.heldDirections.clear();
   state.actionHeld.clear();
   state.nextAttackAt = 0;
   state.lastFrameAt = 0;
   state.effects = [];
-  state.playerRender = { current: { ...state.game.snapshot().player }, tween: null };
+  state.playerRender = { current: { ...state.game.snapshot().player }, tween: null, facing: "south" };
   state.floorFadeStartedAt = 0;
   syncEnemyRenders(state.game.snapshot().enemies);
   syncHud();
+  mainMenu.hidden = true;
+  menuPanel.hidden = false;
+  enemyCodex.hidden = true;
+  syncMenuButtons();
+}
+
+function startRun() {
+  mainMenu.hidden = true;
+  menuPanel.hidden = false;
+  enemyCodex.hidden = true;
+  if (state.hasStartedRun && state.screen === "menu") {
+    state.screen = "game";
+    state.heldDirections.clear();
+    state.actionHeld.clear();
+    state.nextAttackAt = 0;
+    state.lastFrameAt = 0;
+    syncMenuButtons();
+    return;
+  }
+  resetGame();
+}
+
+function showEnemies() {
+  state.screen = "enemies";
+  menuPanel.hidden = true;
+  enemyCodex.hidden = false;
+}
+
+function showMainMenu() {
+  state.screen = "menu";
+  state.heldDirections.clear();
+  state.actionHeld.clear();
+  state.nextAttackAt = 0;
+  menuPanel.hidden = false;
+  enemyCodex.hidden = true;
+  mainMenu.hidden = false;
+  syncMenuButtons();
+}
+
+function selectCharacter(characterKey) {
+  if (!playerCharacters[characterKey]) {
+    return;
+  }
+  state.selectedCharacter = characterKey;
+  for (const button of characterButtons) {
+    button.classList.toggle("is-selected", button.dataset.character === characterKey);
+  }
+}
+
+function pauseToMainMenu() {
+  if (!state.hasStartedRun) {
+    showMainMenu();
+    return;
+  }
+  showMainMenu();
+}
+
+function onMainMenuButton() {
+  if (state.game.snapshot().gameOver) {
+    restartFromMenu();
+    return;
+  }
+  pauseToMainMenu();
+}
+
+function restartFromMenu() {
+  resetGame();
+}
+
+function quitFromMenu() {
+  window.close();
+}
+
+function syncMenuButtons() {
+  startRunButton.textContent = state.hasStartedRun ? "Resume Run" : "Enter Vault";
+  restartRunButton.hidden = !state.hasStartedRun;
+  quitRunButton.hidden = !state.hasStartedRun;
+  mainMenuButton.textContent = state.game.snapshot().gameOver ? "Restart" : "Pause / Menu";
 }
 
 function worldToScreen(position, offsetX, offsetY) {

@@ -75,15 +75,21 @@ const ENEMY_PROFILES = {
     radius: 0.25,
     attackCooldown: 0.9,
     personality: "aggressive",
+    hpGrowth: 1,
+    damageTaken: { slash: 1.25, thrust: 1, crush: 0.9 },
+    staggerThreshold: 0.45,
   },
   brute: {
-    hp: 4,
+    hp: 7,
     damage: 2,
-    reward: 14,
-    speed: 1.8,
+    reward: 18,
+    speed: 1.72,
     radius: 0.3,
     attackCooldown: 1.15,
     personality: "aggressive",
+    hpGrowth: 2,
+    damageTaken: { slash: 0.45, thrust: 0.82, crush: 1.3 },
+    staggerThreshold: 1.1,
   },
   wisp: {
     hp: 2,
@@ -93,17 +99,29 @@ const ENEMY_PROFILES = {
     radius: 0.22,
     attackCooldown: 0.78,
     personality: "random",
+    hpGrowth: 1,
+    damageTaken: { slash: 1, thrust: 1.35, crush: 0.72 },
+    staggerThreshold: 0.35,
   },
   shade: {
-    hp: 3,
+    hp: 4,
     damage: 1,
-    reward: 13,
+    reward: 14,
     speed: 2.05,
     radius: 0.24,
     attackCooldown: 1,
     personality: "confused",
+    hpGrowth: 1,
+    damageTaken: { slash: 1.15, thrust: 0.72, crush: 1.05 },
+    staggerThreshold: 0.65,
   },
 };
+
+const ATTACK_STYLES = [
+  { key: "slash", name: "Slash", damage: 3, range: 1.42, minAlignment: 0.12, recovery: 0.2, comboWindow: 0.7, staggerPower: 0.45, staggerDuration: 0.34 },
+  { key: "thrust", name: "Thrust", damage: 3, range: 1.82, minAlignment: 0.62, recovery: 0.24, comboWindow: 0.62, staggerPower: 0.72, staggerDuration: 0.42 },
+  { key: "crush", name: "Crush", damage: 4, range: 1.5, minAlignment: 0.22, recovery: 0.34, comboWindow: 0.78, staggerPower: 1.25, staggerDuration: 0.7 },
+];
 
 export class DungeonGame {
   constructor({ width = GRID_WIDTH, height = GRID_HEIGHT, seed = Date.now() } = {}) {
@@ -111,7 +129,6 @@ export class DungeonGame {
     this.height = height;
     this.rng = makeRng(seed);
     this.maxHp = 8;
-    this.playerAttackPower = 3;
     this.playerMoveSpeed = 4.8;
     this.playerRadius = 0.28;
     this.enemyAttackRange = 0.76;
@@ -135,6 +152,9 @@ export class DungeonGame {
     this.alertTicks = 0;
     this.alertTimer = 0;
     this.realtimeDashCooldown = 0;
+    this.realtimeAttackRecovery = 0;
+    this.attackComboIndex = 0;
+    this.attackComboTimer = 0;
     this.messageLog = [];
     this.generateFloor();
     this.pushMessage("Descend into the vault and recover the relic.");
@@ -174,28 +194,15 @@ export class DungeonGame {
     if (this.gameOver) {
       return { gameOver: true, logMessage: "The dungeon run is over." };
     }
-
-    const targets = this.attackPositions();
-    let enemyDefeated = 0;
-    let hit = false;
-    for (const enemy of [...this.enemies]) {
-      if (!targets.some((position) => samePosition(position, enemy.position))) {
-        continue;
-      }
-      enemy.hp -= this.playerAttackPower;
-      hit = true;
-      if (enemy.hp <= 0) {
-        this.enemies = this.enemies.filter((candidate) => candidate !== enemy);
-        enemyDefeated += 1;
-        this.kills += 1;
-        this.score += enemy.reward;
-      }
-    }
-
+    const outcome = this.resolvePlayerAttack({
+      playerPosition: this.player,
+      facing: this.facing,
+      useRealtimeRecovery: false,
+    });
     return this.finishTurn({
       attacked: true,
-      enemyDefeated,
-      logMessage: hit ? "Your blade carves a path." : "Your swing cuts only dust.",
+      enemyDefeated: outcome.enemyDefeated,
+      logMessage: outcome.logMessage,
     });
   }
 
@@ -244,6 +251,15 @@ export class DungeonGame {
     if (this.realtimeDashCooldown > 0) {
       this.realtimeDashCooldown = Math.max(0, this.realtimeDashCooldown - clampedDelta);
     }
+    if (this.realtimeAttackRecovery > 0) {
+      this.realtimeAttackRecovery = Math.max(0, this.realtimeAttackRecovery - clampedDelta);
+    }
+    if (this.attackComboTimer > 0) {
+      this.attackComboTimer = Math.max(0, this.attackComboTimer - clampedDelta);
+      if (this.attackComboTimer === 0) {
+        this.attackComboIndex = 0;
+      }
+    }
 
     const direction = normalize(movementInput);
     let playerMoved = false;
@@ -284,7 +300,11 @@ export class DungeonGame {
     const trackingPlayer = playerMoved || this.alertTimer > 0;
     for (const enemy of this.enemies) {
       enemy.attackCooldown = Math.max(0, (enemy.attackCooldown ?? 0) - clampedDelta);
+      enemy.staggerTimer = Math.max(0, (enemy.staggerTimer ?? 0) - clampedDelta);
       const enemyPosition = enemy.worldPosition ?? enemy.position;
+      if (enemy.staggerTimer > 0) {
+        continue;
+      }
       const enemyDistance = distance(enemyPosition, this.playerWorld);
       if (enemyDistance <= this.enemyAttackRange) {
         enemy.facing = this.directionTowardPlayer(enemyPosition);
@@ -378,6 +398,92 @@ export class DungeonGame {
     return normalize(enemy.wanderDirection);
   }
 
+  currentAttackStyle() {
+    if (this.attackComboTimer <= 0) {
+      this.attackComboIndex = 0;
+    }
+    return ATTACK_STYLES[this.attackComboIndex] ?? ATTACK_STYLES[0];
+  }
+
+  resolvePlayerAttack({ playerPosition, facing, useRealtimeRecovery }) {
+    const normalizedFacing = normalize(facing.x === 0 && facing.y === 0 ? { x: 0, y: 1 } : facing);
+    const style = this.currentAttackStyle();
+    let enemyDefeated = 0;
+    let hitCount = 0;
+    let staggeredCount = 0;
+
+    for (const enemy of [...this.enemies]) {
+      const enemyPosition = enemy.worldPosition ?? enemy.position;
+      const toEnemy = {
+        x: enemyPosition.x - playerPosition.x,
+        y: enemyPosition.y - playerPosition.y,
+      };
+      const enemyDistance = Math.hypot(toEnemy.x, toEnemy.y);
+      if (enemyDistance > style.range) {
+        continue;
+      }
+
+      const enemyDirection = enemyDistance === 0
+        ? normalizedFacing
+        : { x: toEnemy.x / enemyDistance, y: toEnemy.y / enemyDistance };
+      const alignment = enemyDirection.x * normalizedFacing.x + enemyDirection.y * normalizedFacing.y;
+      if (alignment < style.minAlignment) {
+        continue;
+      }
+
+      const profile = this.enemyProfile(enemy.kind);
+      const multiplier = profile.damageTaken?.[style.key] ?? 1;
+      const damage = Math.max(1, Math.round(style.damage * multiplier));
+      enemy.hp -= damage;
+      hitCount += 1;
+
+      if (style.staggerPower >= (profile.staggerThreshold ?? 1)) {
+        enemy.staggerTimer = Math.max(enemy.staggerTimer ?? 0, style.staggerDuration ?? 0.4);
+        staggeredCount += 1;
+      }
+
+      if (enemy.hp <= 0) {
+        this.enemies = this.enemies.filter((candidate) => candidate !== enemy);
+        enemyDefeated += 1;
+        this.kills += 1;
+        this.score += enemy.reward;
+      }
+    }
+
+    if (useRealtimeRecovery) {
+      this.realtimeAttackRecovery = style.recovery;
+    }
+
+    if (hitCount > 0) {
+      this.attackComboIndex = (this.attackComboIndex + 1) % ATTACK_STYLES.length;
+      this.attackComboTimer = style.comboWindow;
+    } else {
+      this.attackComboIndex = 0;
+      this.attackComboTimer = 0;
+    }
+
+    return {
+      style,
+      enemyDefeated,
+      hitCount,
+      staggeredCount,
+      logMessage: this.attackLogMessage(style, hitCount, enemyDefeated, staggeredCount),
+    };
+  }
+
+  attackLogMessage(style, hitCount, enemyDefeated, staggeredCount) {
+    if (hitCount === 0) {
+      return `${style.name} misses and the air answers back.`;
+    }
+    if (enemyDefeated > 0) {
+      return `${style.name} lands hard. ${enemyDefeated === 1 ? "A foe falls." : "Foes fall."}`;
+    }
+    if (staggeredCount > 0) {
+      return `${style.name} breaks their footing.`;
+    }
+    return `${style.name} bites into the line.`;
+  }
+
   moveWorldEntity(position, direction, distanceAmount, selfEnemy = null, radius = this.playerRadius) {
     if (!position || distanceAmount <= 0 || (direction.x === 0 && direction.y === 0)) {
       return false;
@@ -462,39 +568,17 @@ export class DungeonGame {
     if (this.gameOver) {
       return { gameOver: true, logMessage: "The dungeon run is over." };
     }
-
-    const facing = normalize(this.facing.x === 0 && this.facing.y === 0 ? { x: 0, y: 1 } : this.facing);
-    let enemyDefeated = 0;
-    let hit = false;
-    for (const enemy of [...this.enemies]) {
-      const enemyPosition = enemy.worldPosition ?? enemy.position;
-      const toEnemy = {
-        x: enemyPosition.x - this.playerWorld.x,
-        y: enemyPosition.y - this.playerWorld.y,
-      };
-      const enemyDistance = Math.hypot(toEnemy.x, toEnemy.y);
-      if (enemyDistance > 1.45) {
-        continue;
-      }
-      const enemyDirection = enemyDistance === 0 ? facing : { x: toEnemy.x / enemyDistance, y: toEnemy.y / enemyDistance };
-      const alignment = enemyDirection.x * facing.x + enemyDirection.y * facing.y;
-      if (alignment < 0.18) {
-        continue;
-      }
-
-      enemy.hp -= this.playerAttackPower;
-      hit = true;
-      if (enemy.hp <= 0) {
-        this.enemies = this.enemies.filter((candidate) => candidate !== enemy);
-        enemyDefeated += 1;
-        this.kills += 1;
-        this.score += enemy.reward;
-      }
+    if (this.realtimeAttackRecovery > 0) {
+      return { attacked: false, enemyDefeated: 0, logMessage: "" };
     }
 
-    const logMessage = hit ? "Your blade carves a path." : "Your swing cuts only dust.";
-    this.pushMessage(logMessage);
-    return { attacked: true, enemyDefeated, logMessage };
+    const outcome = this.resolvePlayerAttack({
+      playerPosition: this.playerWorld,
+      facing: this.facing,
+      useRealtimeRecovery: true,
+    });
+    this.pushMessage(outcome.logMessage);
+    return { attacked: true, enemyDefeated: outcome.enemyDefeated, logMessage: outcome.logMessage };
   }
 
   realtimePlayerDash() {
@@ -728,11 +812,15 @@ export class DungeonGame {
     this.playerWorld = clonePosition(this.player);
     this.alertTimer = 0;
     this.realtimeDashCooldown = 0;
+    this.realtimeAttackRecovery = 0;
+    this.attackComboIndex = 0;
+    this.attackComboTimer = 0;
     for (const enemy of this.enemies) {
       enemy.worldPosition = clonePosition(enemy.position);
       enemy.wanderDirection = this.randomWanderDirection();
       enemy.wanderTimer = this.rng.next() * 0.8 + 0.35;
       enemy.attackCooldown = 0;
+      enemy.staggerTimer = 0;
       enemy.personality = enemy.personality ?? this.enemyProfile(enemy.kind).personality;
       enemy.confusedTimer = this.rng.next() * 0.7 + 0.2;
       enemy.randomMode = "roam";
@@ -759,15 +847,18 @@ export class DungeonGame {
 
   createEnemy(kind, position) {
     const profile = this.enemyProfile(kind);
+    const floorTier = Math.floor((this.floor - 1) / 3);
+    const scaledHp = profile.hp + floorTier * (profile.hpGrowth ?? 1);
     return {
       id: this.nextEnemyId++,
       kind,
       position: clonePosition(position),
-      hp: profile.hp,
-      maxHp: profile.hp,
+      hp: scaledHp,
+      maxHp: scaledHp,
       damage: profile.damage,
-      reward: profile.reward,
+      reward: profile.reward + floorTier * 3,
       personality: profile.personality,
+      staggerTimer: 0,
     };
   }
 
@@ -835,7 +926,7 @@ export class DungeonGame {
       .filter((position) => !reserved.has(keyOf(position)));
     this.rng.shuffle(candidates);
     const enemies = [];
-    const enemyCount = Math.min(7, Math.max(2 + this.floor * 2, 4));
+    const enemyCount = Math.min(10, 4 + Math.floor(this.floor * 1.35));
     const kinds = ["stalker", "wisp", "shade", "brute"];
 
     for (const kind of kinds) {
@@ -983,6 +1074,7 @@ export class DungeonGame {
   }
 
   snapshot() {
+    const attackStyle = this.currentAttackStyle();
     return {
       width: this.width,
       height: this.height,
@@ -999,6 +1091,9 @@ export class DungeonGame {
       exitUnlocked: this.exitUnlocked,
       gameOver: this.gameOver,
       dashCooldown: this.playerWorld ? this.realtimeDashCooldown : this.dashCooldown,
+      attackStyle: attackStyle.name,
+      attackRecovery: this.realtimeAttackRecovery,
+      comboDepth: this.attackComboIndex + 1,
       walls: new Set(this.walls),
       items: this.items.map((item) => ({ ...item, position: { ...item.position } })),
       enemies: this.enemies.map((enemy) => ({

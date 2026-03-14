@@ -9,6 +9,78 @@
   <body>
     <main class="app-shell">
       <section class="app-window">
+        <section id="main-menu" class="main-menu">
+          <div id="menu-panel" class="menu-panel">
+            <p class="menu-kicker">Moria Dungeon</p>
+            <h2>Choose Character</h2>
+            <p class="menu-copy">Choose who enters the vault. Elf and dwarf are fully playable with sprite sets now. The rune-warden portrait is ready while the in-game sheet is still pending.</p>
+            <div class="character-grid">
+              <button class="character-card is-selected" type="button" data-character="elven">
+                <img src="./assets/players/portraits/elven-adventurer.png" alt="Elven adventurer portrait" />
+                <span class="character-name">Elven Delver</span>
+                <span class="character-meta">Sprite Set Ready</span>
+              </button>
+              <button class="character-card" type="button" data-character="dwarf">
+                <img src="./assets/players/portraits/dwarf-adventurer.png" alt="Dwarven adventurer portrait" />
+                <span class="character-name">Dwarven Vaultbreaker</span>
+                <span class="character-meta">Sprite Set Ready</span>
+              </button>
+              <button class="character-card" type="button" data-character="rune">
+                <img src="./assets/players/portraits/rune-warden-adventurer.png" alt="Rune-warden adventurer portrait" />
+                <span class="character-name">Rune-Warden</span>
+                <span class="character-meta">Sprite Set Approximate</span>
+              </button>
+            </div>
+            <div class="menu-actions">
+              <button id="start-run-button" class="menu-button" type="button">Enter Vault</button>
+              <button id="restart-run-button" class="menu-button menu-button-secondary" type="button" hidden>Restart Run</button>
+              <button id="quit-run-button" class="menu-button menu-button-secondary" type="button" hidden>Quit</button>
+              <button id="enemies-button" class="menu-button menu-button-secondary" type="button">Enemies</button>
+            </div>
+          </div>
+
+          <div id="enemy-codex" class="enemy-codex" hidden>
+            <div class="codex-header">
+              <div>
+                <p class="menu-kicker">Vault Index</p>
+                <h3>Enemies</h3>
+              </div>
+              <button id="close-enemies-button" class="menu-button menu-button-secondary" type="button">Back</button>
+            </div>
+
+            <div class="enemy-grid">
+              <article class="enemy-card">
+                <img src="./assets/stalker-sheet/south.png" alt="Gate Stalker front view" />
+                <div>
+                  <h4>Gate Stalker</h4>
+                  <p>Aggressive, fast, relentless. Hunts direct lines and collapses distance quickly.</p>
+                </div>
+              </article>
+              <article class="enemy-card">
+                <img src="./assets/brute-sheet/south.png" alt="Ash Brute front view" />
+                <div>
+                  <h4>Ash Brute</h4>
+                  <p>Heavy, punishing, durable. Slower than the others, but brutal once it closes in.</p>
+                </div>
+              </article>
+              <article class="enemy-card">
+                <img src="./assets/wisp-sheet/south.png" alt="Deep Wisp front view" />
+                <div>
+                  <h4>Deep Wisp</h4>
+                  <p>Unstable, drifting, evasive. Changes movement mood and can roam unpredictably.</p>
+                </div>
+              </article>
+              <article class="enemy-card">
+                <img src="./assets/shade-sheet/south.png" alt="Veil Shade front view" />
+                <div>
+                  <h4>Veil Shade</h4>
+                  <p>Deceptive, nervous, spectral. Can flee or feint while staying near the fight.</p>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+
         <section class="workspace">
           <section class="board-panel">
             <canvas id="game-canvas" width="1040" height="760" aria-label="Vault Delver game board"></canvas>
@@ -65,7 +137,7 @@
                 </div>
               </section>
 
-              <button id="restart-button" class="restart-button" type="button">Restart</button>
+              <button id="main-menu-button" class="restart-button" type="button">Pause / Menu</button>
             </div>
           </aside>
         </section>

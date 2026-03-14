@@ -36,6 +36,39 @@ test("attack defeats a stalker in one clean hit", () => {
   assert.equal(game.enemies.length, 0);
 });
 
+test("brute resists the opening slash and survives the first hit", () => {
+  const game = new DungeonGame({ width: 12, height: 10, seed: 202 });
+  game.walls = new Set();
+  game.player = { x: 4, y: 4 };
+  game.facing = { x: 1, y: 0 };
+  game.enemies = [{ kind: "brute", position: { x: 5, y: 4 }, hp: 7, maxHp: 7, damage: 2, reward: 18, staggerTimer: 0 }];
+
+  game.playerAttack();
+
+  assert.equal(game.enemies.length, 1);
+  assert.equal(game.enemies[0].hp, 6);
+});
+
+test("combo chains from slash into thrust and crush against tougher enemies", () => {
+  const game = new DungeonGame({ width: 12, height: 10, seed: 203 });
+  game.walls = new Set();
+  game.player = { x: 4, y: 4 };
+  game.playerWorld = { x: 4, y: 4 };
+  game.facing = { x: 1, y: 0 };
+  game.enemies = [{ kind: "brute", position: { x: 5, y: 4 }, worldPosition: { x: 5, y: 4 }, hp: 7, maxHp: 7, damage: 2, reward: 18, staggerTimer: 0 }];
+
+  game.realtimePlayerAttack();
+  game.realtimeAttackRecovery = 0;
+  game.attackComboTimer = 0.5;
+  game.realtimePlayerAttack();
+  game.realtimeAttackRecovery = 0;
+  game.attackComboTimer = 0.5;
+  const result = game.realtimePlayerAttack();
+
+  assert.equal(result.attacked, true);
+  assert.equal(game.enemies.length, 0);
+});
+
 test("moving into an enemy does not attack", () => {
   const game = new DungeonGame({ width: 12, height: 10, seed: 22 });
   game.walls = new Set();
